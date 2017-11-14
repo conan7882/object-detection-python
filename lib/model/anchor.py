@@ -28,8 +28,8 @@ def get_gt_anchors(im_anchors, gt_bbox, pos_thr=0.7, neg_thr=0.3):
     pos_idx = np.where(overlaps > pos_thr)
     max_idx = np.argmax(overlaps, axis=1)
 
-    print(max_idx)
-    print(pos_idx[0], pos_idx[1])
+    # print(max_idx)
+    # print(pos_idx[0], pos_idx[1])
 
     pos_idx = np.unique(np.concatenate((max_idx, pos_idx[1])))
     pos_box = im_anchors[pos_idx, :]
@@ -110,6 +110,7 @@ def whcenter2anchors(w, h, cx, cy):
 if __name__ == '__main__':
     import time
     from scipy import misc
+    import imageio
     
     from dataflow.detectiondb import DetectionDB
     from utils.viz import draw_bounding_box
@@ -121,14 +122,14 @@ if __name__ == '__main__':
 
     stride = 8
 
-    im = misc.imread(im_path)
+    im = imageio.imread(im_path)
     im_h, im_w = im.shape[0], im.shape[1]
     f_w, f_h = np.round(im_w / stride), np.round(im_h / stride)
 
     im_anchors = gen_im_anchors(f_w, f_w, stride=stride)
 
     valid_anchors = remove_cross_boundary_anchors(im_w, im_h, im_anchors)
-    print(valid_anchors.shape[0])
+    # print(valid_anchors.shape[0])
 
     db = DetectionDB()
     gt_bbox = db._parse_bbox_xml(xml_path)
