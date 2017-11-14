@@ -4,6 +4,8 @@
 # Author: Qian Ge <geqian1001@gmail.com>
 
 import xml.etree.ElementTree as ET
+import numpy as np
+
 from tensorcv.dataflow.image import ImageFromFile
 
 class DetectionDB(ImageFromFile):
@@ -40,13 +42,16 @@ class DetectionDB(ImageFromFile):
             xmax = float(box.find('xmax').text)
             ymax = float(box.find('ymax').text)
             box = [xmin, ymin, xmax, ymax]
-            box_list.append((cur_class, box, name))
+            box_list.append(box)
+            # box_list.append((cur_class, box, name))
 
-        return box_list          
+        return np.array(box_list)    
 
 if __name__ == '__main__':
     db = DetectionDB()
 
     xml_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/Annotations/000654.xml'
-    db._parse_bbox_xml(xml_path)
+    bbox = db._parse_bbox_xml(xml_path)
+    print(bbox)
+
 
