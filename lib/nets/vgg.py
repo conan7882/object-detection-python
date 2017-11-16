@@ -139,30 +139,30 @@ class VGG19(BaseVGG):
         with arg_scope([conv], nl=tf.nn.relu, trainable=self._train_12, data_dict=data_dict):
             conv1_1 = conv(input_im, 3, 64, 'conv1_1')
             conv1_2 = conv(conv1_1, 3, 64, 'conv1_2')
-            pool1 = max_pool(conv1_2, 'pool1', padding='SAME')
+            pool1 = max_pool(conv1_2, 'pool1', padding='VALID')
 
             conv2_1 = conv(pool1, 3, 128, 'conv2_1')
             conv2_2 = conv(conv2_1, 3, 128, 'conv2_2')
-            pool2 = max_pool(conv2_2, 'pool2', padding='SAME')
+            pool2 = max_pool(conv2_2, 'pool2', padding='VALID')
 
         with arg_scope([conv], nl=tf.nn.relu, trainable=self._train_3up, data_dict=data_dict):
             conv3_1 = conv(pool2, 3, 256, 'conv3_1')
             conv3_2 = conv(conv3_1, 3, 256, 'conv3_2')
             conv3_3 = conv(conv3_2, 3, 256, 'conv3_3')
             conv3_4 = conv(conv3_3, 3, 256, 'conv3_4')
-            pool3 = max_pool(conv3_4, 'pool3', padding='SAME')
+            pool3 = max_pool(conv3_4, 'pool3', padding='VALID')
 
             conv4_1 = conv(pool3, 3, 512, 'conv4_1')
             conv4_2 = conv(conv4_1, 3, 512, 'conv4_2')
             conv4_3 = conv(conv4_2, 3, 512, 'conv4_3')
             conv4_4 = conv(conv4_3, 3, 512, 'conv4_4')
-            pool4 = max_pool(conv4_4, 'pool4', padding='SAME')
+            pool4 = max_pool(conv4_4, 'pool4', padding='VALID')
 
             conv5_1 = conv(pool4, 3, 512, 'conv5_1')
             conv5_2 = conv(conv5_1, 3, 512, 'conv5_2')
             conv5_3 = conv(conv5_2, 3, 512, 'conv5_3')
             conv5_4 = conv(conv5_3, 3, 512, 'conv5_4')
-            pool5 = max_pool(conv5_4, 'pool5', padding='SAME')
+            pool5 = max_pool(conv5_4, 'pool5', padding='VALID')
 
             self.layer['conv1_1'] = conv1_1
             self.layer['conv1_2'] = conv1_2
@@ -276,27 +276,27 @@ class VGG16_FCN(VGG19_FCN):
         with arg_scope([conv], nl=tf.nn.relu, trainable=self._train_12, data_dict=data_dict):
             conv1_1 = conv(input_im, 3, 64, 'conv1_1')
             conv1_2 = conv(conv1_1, 3, 64, 'conv1_2')
-            pool1 = max_pool(conv1_2, 'pool1', padding='SAME')
+            pool1 = max_pool(conv1_2, 'pool1', padding='VALID')
 
             conv2_1 = conv(pool1, 3, 128, 'conv2_1')
             conv2_2 = conv(conv2_1, 3, 128, 'conv2_2')
-            pool2 = max_pool(conv2_2, 'pool2', padding='SAME')
+            pool2 = max_pool(conv2_2, 'pool2', padding='VALID')
 
         with arg_scope([conv], nl=tf.nn.relu, trainable=self._train_3up, data_dict=data_dict):
             conv3_1 = conv(pool2, 3, 256, 'conv3_1')
             conv3_2 = conv(conv3_1, 3, 256, 'conv3_2')
             conv3_3 = conv(conv3_2, 3, 256, 'conv3_3')
-            pool3 = max_pool(conv3_3, 'pool3', padding='SAME')
+            pool3 = max_pool(conv3_3, 'pool3', padding='VALID')
 
             conv4_1 = conv(pool3, 3, 512, 'conv4_1')
             conv4_2 = conv(conv4_1, 3, 512, 'conv4_2')
             conv4_3 = conv(conv4_2, 3, 512, 'conv4_3')
-            pool4 = max_pool(conv4_3, 'pool4', padding='SAME')
+            pool4 = max_pool(conv4_3, 'pool4', padding='VALID')
 
             conv5_1 = conv(pool4, 3, 512, 'conv5_1')
             conv5_2 = conv(conv5_1, 3, 512, 'conv5_2')
             conv5_3 = conv(conv5_2, 3, 512, 'conv5_3')
-            pool5 = max_pool(conv5_3, 'pool5', padding='SAME')
+            pool5 = max_pool(conv5_3, 'pool5', padding='VALID')
 
             self.layer['conv1_1'] = conv1_1
             self.layer['conv1_2'] = conv1_2

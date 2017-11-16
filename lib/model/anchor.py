@@ -23,11 +23,13 @@ import sys
 sys.path.append('../../lib/')
 import utils.bbox as bbox
 
-def anchor_training_samples(im_width, im_height, gt_bbox, stride=16, 
+def anchor_training_samples(im_width, im_height, gt_bbox,
+                            stride=16, 
                             ratios=(1, 0.5, 2), scales=(8, 16, 32),
                             pos_thr=0.7, neg_thr=0.3, num_sample=128):
 
-    f_size = list(map(int, [np.round(im_width / stride), np.round(im_height / stride)]))
+    # if f_w is None or f_h is None:
+    f_size = list(map(int, [np.floor(im_width / stride), np.floor(im_height / stride)]))
     f_w = f_size[0]
     f_h = f_size[1]
 
@@ -49,8 +51,9 @@ def anchor_training_samples(im_width, im_height, gt_bbox, stride=16,
     mask = _fill_map(mask, neg_position, 1)
 
     label_map = _fill_map(label_map, pos_position, 1)
-    # label_map = _fill_map(label_map, neg_position, 0)
 
+    mask = mask.astype(int)
+    label_map = label_map.astype(int)
     return pos_box, neg_box, pos_position, neg_position, mask, label_map
 
 def _fill_map(map_fill, position, fill_val):
@@ -99,6 +102,8 @@ def get_gt_anchors(im_anchors, positions, gt_bbox, pos_thr=0.7, neg_thr=0.3, num
 
 def random_sample_anchor(anchors, positions, num_sample):
     n_anchor = anchors.shape[0]
+    if n_anchor <= 0:
+        return anchors, positions
     r_idx = np.random.choice(n_anchor, size=num_sample, replace=False)
     return anchors[r_idx, :], positions[r_idx, :]
 
@@ -193,26 +198,32 @@ if __name__ == '__main__':
 
     t = time.time()
     
-    # im_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/JPEGImages/000654.jpg'
-    # xml_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/Annotations/000654.xml'
+    im_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/JPEGImages/'
+    xml_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/Annotations/'
 
-    im_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/JPEGImages/000654.jpg'
-    xml_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/Annotations/000654.xml'
+    # im_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/JPEGImages/000654.jpg'
+    # xml_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/Annotations/000654.xml'
 
     stride = 8
+    db = DetectionDB('jpg', im_path, xml_path)
+    data = db.next_batch()
 
-    im = imageio.imread(im_path)
+    gt_bbox = data[1][0]
+    im = data[0][0]
     im_h, im_w = im.shape[0], im.shape[1]
-    f_w, f_h = np.round(im_w / stride), np.round(im_h / stride)
+    # f_w, f_h = np.round(im_w / stride), np.round(im_h / stride)
 
-    im_anchors, anchor_position = gen_im_anchors(f_w, f_h, stride=stride)
+    # im_anchors, anchor_position = gen_im_anchors(f_w, f_h, stride=stride)
 
-    valid_anchors, valid_positions = remove_cross_boundary_anchors(im_w, im_h, im_anchors, anchor_position)
-    # print(valid_anchors.shape[0])
+    # valid_anchors, valid_positions = remove_cross_boundary_anchors(im_w, im_h, im_anchors, anchor_position)
+    # # print(valid_anchors.shape[0])
 
-    db = DetectionDB()
-    gt_bbox = db._parse_bbox_xml(xml_path)
-    pos_box, neg_box, pos_position, neg_position = get_gt_anchors(valid_anchors, valid_positions, gt_bbox, pos_thr=0.7, neg_thr=0.3)
+    
+    # gt_bbox = db._parse_bbox_xml(xml_path)
+    pos_box, neg_box, pos_position, neg_position, mask, label_map =\
+     anchor_training_samples(im_w, im_h, gt_bbox, stride=stride,
+                            ratios=(1, 0.5, 2), scales=(8, 16, 32),
+                            pos_thr=0.7, neg_thr=0.3, num_sample=128)
     print(time.time() - t)
-    draw_bounding_box(im, pos_box)
+    # draw_bounding_box(im, pos_box)
 

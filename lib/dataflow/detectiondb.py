@@ -71,6 +71,7 @@ class DetectionDB(RNGDataFlow):
             im_data = load_image(im_path, read_channel=self._read_channel,
                             resize=self._resize, rescale_shorter=self._rescale)
             im_list.extend(im_data[0])
+            im_list = np.array(im_list)
             rescale_ratio = im_data[1]
 
             xml_path = self._xml_list[k]
