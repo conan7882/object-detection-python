@@ -57,7 +57,9 @@ class BaseVGG(BaseModel):
                  is_load=False,
                  pre_train_path=None,
                  is_rescale=False,
-                 trainable=False):
+                 trainable_conv_12=False,
+                 trainable_conv_3up=False,
+                 trainable_fc=False):
         """ 
         Args:
             num_class (int): number of image classes
@@ -73,7 +75,10 @@ class BaseVGG(BaseModel):
         self.im_width = im_width
         self.num_class = num_class
         self._is_rescale = is_rescale
-        self._trainable = trainable
+        self._train_12 = trainable_conv_12
+        self._train_3up = trainable_conv_3up
+        self._train_fc = trainable_fc
+
 
         self.layer = {}
 
@@ -131,7 +136,7 @@ class VGG19(BaseVGG):
     def _create_conv(self, input_im, data_dict):
 
         arg_scope = tf.contrib.framework.arg_scope
-        with arg_scope([conv], nl=tf.nn.relu, trainable=self._trainable, data_dict=data_dict):
+        with arg_scope([conv], nl=tf.nn.relu, trainable=self._train_12, data_dict=data_dict):
             conv1_1 = conv(input_im, 3, 64, 'conv1_1')
             conv1_2 = conv(conv1_1, 3, 64, 'conv1_2')
             pool1 = max_pool(conv1_2, 'pool1', padding='SAME')
@@ -140,6 +145,7 @@ class VGG19(BaseVGG):
             conv2_2 = conv(conv2_1, 3, 128, 'conv2_2')
             pool2 = max_pool(conv2_2, 'pool2', padding='SAME')
 
+        with arg_scope([conv], nl=tf.nn.relu, trainable=self._train_3up, data_dict=data_dict):
             conv3_1 = conv(pool2, 3, 256, 'conv3_1')
             conv3_2 = conv(conv3_1, 3, 256, 'conv3_2')
             conv3_3 = conv(conv3_2, 3, 256, 'conv3_3')
@@ -199,7 +205,7 @@ class VGG19(BaseVGG):
         conv_output = self._create_conv(input_bgr, data_dict)
         
         arg_scope = tf.contrib.framework.arg_scope
-        with arg_scope([fc], trainable=self._trainable, data_dict=data_dict):
+        with arg_scope([fc], trainable=self._train_fc, data_dict=data_dict):
             fc6 = fc(conv_output, 4096, 'fc6', nl=tf.nn.relu)
             dropout_fc6 = dropout(fc6, keep_prob, self.is_training)
 
@@ -242,7 +248,7 @@ class VGG19_FCN(VGG19):
         conv_outptu = self._create_conv(input_bgr, data_dict)
 
         arg_scope = tf.contrib.framework.arg_scope
-        with arg_scope([conv], trainable=self._trainable, data_dict=data_dict):
+        with arg_scope([conv], trainable=self._train_fc, data_dict=data_dict):
 
             fc6 = conv(conv_outptu, 7, 4096, 'fc6',
                        nl=tf.nn.relu, padding='VALID')
@@ -260,13 +266,14 @@ class VGG19_FCN(VGG19):
 
         self.output = tf.identity(fc8, 'model_output')
         self.avg_output = global_avg_pool(fc8)
+        self.layer['gap_out'] = self.avg_output
 
 class VGG16_FCN(VGG19_FCN):    
 
     def _create_conv(self, input_im, data_dict):
 
         arg_scope = tf.contrib.framework.arg_scope
-        with arg_scope([conv], nl=tf.nn.relu, trainable=self._trainable, data_dict=data_dict):
+        with arg_scope([conv], nl=tf.nn.relu, trainable=self._train_12, data_dict=data_dict):
             conv1_1 = conv(input_im, 3, 64, 'conv1_1')
             conv1_2 = conv(conv1_1, 3, 64, 'conv1_2')
             pool1 = max_pool(conv1_2, 'pool1', padding='SAME')
@@ -275,6 +282,7 @@ class VGG16_FCN(VGG19_FCN):
             conv2_2 = conv(conv2_1, 3, 128, 'conv2_2')
             pool2 = max_pool(conv2_2, 'pool2', padding='SAME')
 
+        with arg_scope([conv], nl=tf.nn.relu, trainable=self._train_3up, data_dict=data_dict):
             conv3_1 = conv(pool2, 3, 256, 'conv3_1')
             conv3_2 = conv(conv3_1, 3, 256, 'conv3_2')
             conv3_3 = conv(conv3_2, 3, 256, 'conv3_3')

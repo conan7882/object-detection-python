@@ -17,29 +17,97 @@
 #  [-168. -344.  183.  359.]]
 
 import numpy as np
+import numpy.matlib
 
 import sys
 sys.path.append('../../lib/')
 import utils.bbox as bbox
 
+def anchor_training_samples(im_width, im_height, gt_bbox, stride=16, 
+                            ratios=(1, 0.5, 2), scales=(8, 16, 32),
+                            pos_thr=0.7, neg_thr=0.3, num_sample=128):
 
-def get_gt_anchors(im_anchors, gt_bbox, pos_thr=0.7, neg_thr=0.3):
+    f_size = list(map(int, [np.round(im_width / stride), np.round(im_height / stride)]))
+    f_w = f_size[0]
+    f_h = f_size[1]
+
+    im_anchors, anchor_position = gen_im_anchors(f_w, f_h, stride=stride, ratios=ratios, scales=scales)
+
+    valid_anchors, valid_positions =\
+        remove_cross_boundary_anchors(im_width, im_height, im_anchors, anchor_position)
+
+    pos_box, neg_box, pos_position, neg_position =\
+        get_gt_anchors(valid_anchors, valid_positions, gt_bbox,
+                       pos_thr=pos_thr, neg_thr=neg_thr, num_sample=num_sample)
+
+    mask = np.empty([f_h, f_w])
+    mask.fill(0)
+    label_map = np.empty([f_h, f_w])
+    label_map.fill(0)
+
+    mask = _fill_map(mask, pos_position, 1)
+    mask = _fill_map(mask, neg_position, 1)
+
+    label_map = _fill_map(label_map, pos_position, 1)
+    # label_map = _fill_map(label_map, neg_position, 0)
+
+    return pos_box, neg_box, pos_position, neg_position, mask, label_map
+
+def _fill_map(map_fill, position, fill_val):
+    # position [x, y]
+    for p in position:
+        map_fill[p[1], p[0]] = fill_val
+
+    return map_fill
+
+
+def get_gt_anchors(im_anchors, positions, gt_bbox, pos_thr=0.7, neg_thr=0.3, num_sample=128):
+    # TODO write bbox.bbox_overlaps in C++
     overlaps = bbox.bbox_overlaps(gt_bbox, im_anchors)
-    pos_idx = np.where(overlaps > pos_thr)
-    max_idx = np.argmax(overlaps, axis=1)
 
-    # print(max_idx)
-    # print(pos_idx[0], pos_idx[1])
+    pos_idx = np.where(overlaps > pos_thr)
+
+    max_idx = np.argmax(overlaps, axis=1)
+    max_overlap = np.max(overlaps, axis=1)    
+    max_idx = np.delete(max_idx, np.where(max_overlap < neg_thr))
 
     pos_idx = np.unique(np.concatenate((max_idx, pos_idx[1])))
     pos_box = im_anchors[pos_idx, :]
-    return pos_box
+    pos_position = positions[pos_idx, :]
+
+    neg_idx = np.where(overlaps < neg_thr)
+    neg_box = im_anchors[neg_idx[1], :]
+    neg_position = positions[neg_idx[1], :]
+
+    n_pos = pos_box.shape[0]
+    n_neg = neg_box.shape[0]
+
+    if n_neg < num_sample:
+        raise GeneratorExit('Not enough negtive anchor samples! (Should not happen.)')
+
+    n_pos = min(n_pos, num_sample)
+    n_neg = max(num_sample, 2 * num_sample - n_pos)
+
+    pos_box, pos_position = random_sample_anchor(
+        pos_box, pos_position, n_pos)
+
+    neg_box, neg_position = random_sample_anchor(
+        neg_box, neg_position, n_neg)
+
+    return pos_box, neg_box, pos_position, neg_position
 
 
-def remove_cross_boundary_anchors(im_w, im_h, anchors):
+def random_sample_anchor(anchors, positions, num_sample):
+    n_anchor = anchors.shape[0]
+    r_idx = np.random.choice(n_anchor, size=num_sample, replace=False)
+    return anchors[r_idx, :], positions[r_idx, :]
+
+
+
+def remove_cross_boundary_anchors(im_w, im_h, anchors, positions):
     valid_idx = np.all([anchors[:, 0] >= 0, anchors[:, 1] >= 0, 
                 anchors[:, 2] < im_w, anchors[:, 3] < im_h], axis=0)
-    return anchors[valid_idx, :]
+    return anchors[valid_idx, :], positions[valid_idx]
 
 
 def gen_im_anchors(width, height, stride=16, ratios=(1, 0.5, 2), scales=(8, 16, 32)):
@@ -64,7 +132,15 @@ def gen_im_anchors(width, height, stride=16, ratios=(1, 0.5, 2), scales=(8, 16, 
     shift_anchors = np.reshape(base_anchor_set, (1, nanchors, 4)) +\
                     shift_mesh.reshape((1, nshifts, 4)).transpose((1, 0, 2))
     shift_anchors = np.reshape(shift_anchors, (nanchors * nshifts, 4))
-    return shift_anchors
+
+    # Generate a list to record anchor postion in feature map and anchor id
+    n_anchor = len(base_anchor_set)
+    anchor_position = np.vstack([shift_x.ravel() / stride, shift_y.ravel() / stride]).transpose()
+
+    anchor_position = np.array([list(map(int, (anchor[0], anchor[1], a_id)))
+                       for anchor in anchor_position 
+                       for a_id in range(0, n_anchor)])
+    return shift_anchors, anchor_position
 
 
 def gen_anchors(stride=16, ratios=[1, 0.5, 2], scales=2 ** np.arange(3, 6)):
@@ -117,8 +193,11 @@ if __name__ == '__main__':
 
     t = time.time()
     
-    im_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/JPEGImages/000654.jpg'
-    xml_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/Annotations/000654.xml'
+    # im_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/JPEGImages/000654.jpg'
+    # xml_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/Annotations/000654.xml'
+
+    im_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/JPEGImages/000654.jpg'
+    xml_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/Annotations/000654.xml'
 
     stride = 8
 
@@ -126,14 +205,14 @@ if __name__ == '__main__':
     im_h, im_w = im.shape[0], im.shape[1]
     f_w, f_h = np.round(im_w / stride), np.round(im_h / stride)
 
-    im_anchors = gen_im_anchors(f_w, f_w, stride=stride)
+    im_anchors, anchor_position = gen_im_anchors(f_w, f_h, stride=stride)
 
-    valid_anchors = remove_cross_boundary_anchors(im_w, im_h, im_anchors)
+    valid_anchors, valid_positions = remove_cross_boundary_anchors(im_w, im_h, im_anchors, anchor_position)
     # print(valid_anchors.shape[0])
 
     db = DetectionDB()
     gt_bbox = db._parse_bbox_xml(xml_path)
-    pos_box = get_gt_anchors(valid_anchors, gt_bbox, pos_thr=0.7, neg_thr=0.3)
+    pos_box, neg_box, pos_position, neg_position = get_gt_anchors(valid_anchors, valid_positions, gt_bbox, pos_thr=0.7, neg_thr=0.3)
     print(time.time() - t)
     draw_bounding_box(im, pos_box)
 

@@ -7,7 +7,7 @@ from tensorcv.models.base import BaseModel
 
 from vgg import VGG16_FCN
 
-def RPN(BaseModel):
+class RPN(BaseModel):
     def __init__(self):
         pass
 

@@ -27,4 +27,6 @@ def draw_bounding_box(im, box):
         # Add the patch to the Axes
         ax.add_patch(rect)
 
+    ax.axis('off')
+
     plt.show()
