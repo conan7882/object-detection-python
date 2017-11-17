@@ -27,6 +27,52 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
                             stride=16, 
                             ratios=(1, 0.5, 2), scales=(8, 16, 32),
                             pos_thr=0.7, neg_thr=0.3, num_sample=128):
+    """ 
+    Sample training anchors for region proposal networks as described in
+    paper Faster R-CNN. Default parameters are the same as the paper.
+    Positive samples are the anchors overlap groundtruth bounding box greater
+    than pos_thr or the max overlapping anchor for a groundtruth box.
+    Negative samples are the anchors overlap all the groundtruth box less
+    than neg_thr. Training samples are randomly picked num_sample samples
+    from positive and negative samples respectively. If there is less positive
+    samples than num_sample, it will pad with
+    negative ones.
+
+    Args:
+        im_width (int): width of original imagei
+        im_height (int): height of original image
+        gt_bbox (np.array): list of groundtruth bounding box with format
+            [[xmin, ymin, xmax, ymax], ...]
+        stride (int): stride of feature extraction networks
+            (e.x. stride=16 for VGG)
+        ratios (list): list of ratios used for anchors generation
+        scales (list): list of scales used for anchors generation
+        pos_thr (float): threshold for assigning the positive samples
+        neg_thr (float): threshold for assigning the negative samples
+        num_sample (int): number of training samples picked from positive
+            and negative samples
+
+    Returns:
+        pos_anchor (np.array): list of positive training anchor samples with
+            format [[xmin, ymin, xmax, ymax], ...]
+        neg_anchor (np.array): list of negative training anchor samples with
+            format [[xmin, ymin, xmax, ymax], ...]
+        pos_position (np.array): list of position of positive samples in
+            output of cls layer
+        neg_position (np.array): list of position of negative samples in
+            output of cls layer
+        mask (np.array): mask of training samples corresponding to output
+            of cls layer
+        label_map (np.array): labels {1 (object), 0, (background)} of training
+            samples on output of cls layer
+        sampled_gt_bbox (np.array): corresponding groundtruth bounding box for
+            each positive training samples 
+        t_s (np.array): bounding box regression parameters for each positive
+            training anchors with format [[tx, ty, tw, th], ...]
+
+    Note:
+        All corresponding outputs maintain the same orders.
+    """
 
     # if f_w is None or f_h is None:
     f_size = list(map(int, [np.floor(im_width / stride), np.floor(im_height / stride)]))
@@ -38,13 +84,15 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
     valid_anchors, valid_positions =\
         remove_cross_boundary_anchors(im_width, im_height, im_anchors, anchor_position)
 
-    pos_box, neg_box, pos_position, neg_position =\
+    pos_anchor, neg_anchor, pos_position, neg_position, pos_gt_idx =\
         get_gt_anchors(valid_anchors, valid_positions, gt_bbox,
                        pos_thr=pos_thr, neg_thr=neg_thr, num_sample=num_sample)
 
-    mask = np.empty([f_h, f_w])
+    n_anchor_set = len(ratios) * len(scales)
+
+    mask = np.empty([f_h, f_w, n_anchor_set])
     mask.fill(0)
-    label_map = np.empty([f_h, f_w])
+    label_map = np.empty([f_h, f_w, n_anchor_set])
     label_map.fill(0)
 
     mask = _fill_map(mask, pos_position, 1)
@@ -54,36 +102,87 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
 
     mask = mask.astype(int)
     label_map = label_map.astype(int)
-    return pos_box, neg_box, pos_position, neg_position, mask, label_map
+
+    sampled_gt_bbox = gt_bbox[pos_gt_idx, :]
+    t_s = comp_regression_paras(pos_anchor, sampled_gt_bbox)
+
+    print('number of samples: {}, number of positive: {}, {}'.\
+        format(np.sum(mask), np.sum(label_map), len(pos_gt_idx)))
+
+    return pos_anchor, neg_anchor, pos_position, neg_position, mask, label_map, sampled_gt_bbox, t_s
 
 def _fill_map(map_fill, position, fill_val):
     # position [x, y]
     for p in position:
-        map_fill[p[1], p[0]] = fill_val
+        # print(p)
+        if (map_fill[p[1], p[0], p[2]] == 1):
+            print('**{}'.format(p))
+        map_fill[p[1], p[0], p[2]] = fill_val
 
     return map_fill
+
+def comp_regression_paras(anchors, bbox):
+    """
+    Returns:
+        [tx, ty, tw, th]
+    """
+    x, y, w, h = bbox[:, 0], bbox[:, 1], bbox[:, 2] - bbox[:, 0], bbox[:, 3] - bbox[:, 1]
+    xa, ya, wa, ha = anchors[:, 0], anchors[:, 1], anchors[:, 2] - anchors[:, 0], anchors[:, 3] - anchors[:, 1]
+
+    tx = (x - xa) / wa
+    ty = (y - ya) / ha
+    tw = np.log(w / wa)
+    th = np.log(h / ha)
+
+    return np.vstack([tx, ty, tw, th]).transpose()
 
 
 def get_gt_anchors(im_anchors, positions, gt_bbox, pos_thr=0.7, neg_thr=0.3, num_sample=128):
     # TODO write bbox.bbox_overlaps in C++
     overlaps = bbox.bbox_overlaps(gt_bbox, im_anchors)
+    ###
+    max_overlap_gt = np.max(overlaps, axis = 0)
+    max_overlap_gt_idx = np.argmax(overlaps, axis=0)
+    pos_idx = np.where(max_overlap_gt > pos_thr)
+    pos_gt = max_overlap_gt_idx[pos_idx]
 
-    pos_idx = np.where(overlaps > pos_thr)
+    max_overlap_anchor = np.max(overlaps, axis=1)
+    max_overlap_anchor_id = np.argmax(overlaps, axis=1)
+    gt_idx = np.array([i for i in range(len(gt_bbox))])
+    gt_idx = np.delete(gt_idx, np.where(max_overlap_anchor < neg_thr))
+    max_overlap_anchor_id = np.delete(max_overlap_anchor_id, np.where(max_overlap_anchor < neg_thr))
 
-    max_idx = np.argmax(overlaps, axis=1)
-    max_overlap = np.max(overlaps, axis=1)    
-    max_idx = np.delete(max_idx, np.where(max_overlap < neg_thr))
+    pos_idx = np.concatenate((max_overlap_anchor_id, pos_idx[0]))
+    pos_gt_idx = np.concatenate((gt_idx, pos_gt))
 
-    pos_idx = np.unique(np.concatenate((max_idx, pos_idx[1])))
-    pos_box = im_anchors[pos_idx, :]
+    pos_idx, unique_idx = np.unique(pos_idx, return_index=True)
+    pos_gt_idx = pos_gt_idx[unique_idx]
+
+    neg_idx = np.where(max_overlap_gt < neg_thr)[0]
+
+    ###
+
+    # pos_idx = np.where(overlaps > pos_thr)
+
+    # max_idx = np.argmax(overlaps, axis=1)
+    # max_overlap = np.max(overlaps, axis=1)    
+    # max_idx = np.delete(max_idx, np.where(max_overlap < neg_thr))
+    # pos_idx = np.unique(np.concatenate((max_idx, pos_idx[1])))
+
+    # n_care_idx = np.where(overlaps > neg_thr)
+    # neg_idx = np.empty([len(positions)], dtype=bool)
+    # neg_idx.fill(True)
+    # neg_idx[n_care_idx[1]] = False
+
+    
+    pos_anchor = im_anchors[pos_idx, :]
     pos_position = positions[pos_idx, :]
 
-    neg_idx = np.where(overlaps < neg_thr)
-    neg_box = im_anchors[neg_idx[1], :]
-    neg_position = positions[neg_idx[1], :]
+    neg_anchor = im_anchors[neg_idx, :]
+    neg_position = positions[neg_idx, :]
 
-    n_pos = pos_box.shape[0]
-    n_neg = neg_box.shape[0]
+    n_pos = pos_anchor.shape[0]
+    n_neg = neg_anchor.shape[0]
 
     if n_neg < num_sample:
         raise GeneratorExit('Not enough negtive anchor samples! (Should not happen.)')
@@ -91,21 +190,24 @@ def get_gt_anchors(im_anchors, positions, gt_bbox, pos_thr=0.7, neg_thr=0.3, num
     n_pos = min(n_pos, num_sample)
     n_neg = max(num_sample, 2 * num_sample - n_pos)
 
-    pos_box, pos_position = random_sample_anchor(
-        pos_box, pos_position, n_pos)
+    pos_anchor, pos_position, pos_gt_idx = random_sample_anchor(
+        pos_anchor, pos_position, n_pos, gt_idx=pos_gt_idx)
 
-    neg_box, neg_position = random_sample_anchor(
-        neg_box, neg_position, n_neg)
+    neg_anchor, neg_position, unuse  = random_sample_anchor(
+        neg_anchor, neg_position, n_neg)
 
-    return pos_box, neg_box, pos_position, neg_position
+    return pos_anchor, neg_anchor, pos_position, neg_position, pos_gt_idx
 
 
-def random_sample_anchor(anchors, positions, num_sample):
+def random_sample_anchor(anchors, positions, num_sample, gt_idx=None):
     n_anchor = anchors.shape[0]
     if n_anchor <= 0:
-        return anchors, positions
+        return anchors, positions, []
     r_idx = np.random.choice(n_anchor, size=num_sample, replace=False)
-    return anchors[r_idx, :], positions[r_idx, :]
+    if gt_idx is None:
+        return anchors[r_idx, :], positions[r_idx, :], []
+    else:
+        return anchors[r_idx, :], positions[r_idx, :], gt_idx[r_idx]
 
 
 

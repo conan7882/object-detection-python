@@ -23,12 +23,13 @@ from model.masked_losses import masked_softmax_cross_entropy_with_logits
 
 class RPN(BaseModel):
     def __init__(self, pre_train_path, num_channels=3, fine_tune=True, learning_rate=1e-3,
-                 num_anchors=9, stride=16, ratios=(1, 0.5, 2), scales=(8, 16, 32),
+                 stride=16, ratios=(1, 0.5, 2), scales=(8, 16, 32),
                  pos_thr=0.7, neg_thr=0.3, num_sample_per_batch=128):
         self._vgg_path = pre_train_path
         self._fine_tune = fine_tune
         self._nchannel = num_channels
-        self._nanchor = num_anchors
+
+        self._nanchor = len(ratios) * len(scales)
 
         self._stride = stride
         self._ratio = ratios
@@ -57,6 +58,10 @@ class RPN(BaseModel):
         input_im = self.model_input[0]
         keep_prob = self.model_input[1]
 
+        im_size = self.model_input[2]
+        gt_bbox = self.model_input[3]
+        self._get_target_anchors(im_size[0], gt_bbox[0])
+
         self.layer = {}
 
         vgg_model = VGG16_FCN(is_load=True, trainable_conv_3up=self._fine_tune,
@@ -72,13 +77,14 @@ class RPN(BaseModel):
 
         feat_map = layers.conv(conv_out, 3, 512, 'feat_map', wd=wd, init_w=init_w, init_b=init_b)
         # cls layer
-        cls = layers.conv(feat_map, 1, 2, 'cls', wd=wd, init_w=init_w, init_b=init_b)
+        cls = layers.conv(feat_map, 1, self._nanchor, 'cls_layer', wd=wd, init_w=init_w, init_b=init_b)
         
         # reg layer
-        # reg = []
-        # for i in range(0, self._nanchor):
-        #     reg.append(layers.conv(feat_map, 1, 4, 'reg_{}'.format(i)))
-        # print(len(reg))
+        # with tf.variable_scope('reg_layer'):
+        #     reg = []
+        #     for i in range(0, self._nanchor):
+        #         reg.append(layers.conv(feat_map, 1, 4, 'reg_layer_{}'.format(i),
+        #                                wd=wd, init_w=init_w, init_b=init_b))
 
         self.layer['input'] = input_im
         self.layer['feat_map'] = feat_map
@@ -86,31 +92,29 @@ class RPN(BaseModel):
         # self.layer['reg'] = reg
         self.layer['output'] = vgg_model.layer['gap_out']
 
-        im_size = self.model_input[2]
-        gt_bbox = self.model_input[3]
-        self._get_target_anchors(im_size[0], gt_bbox[0])
-
-        # self._get_loss()
-        tf.summary.image('cls', tf.expand_dims(cls[:, :, :, 1], dim=-1), collections = ['train'])
         sum_cls_label = tf.cast(self._cls_label, tf.float64)
-        sum_cls_label = tf.reshape(sum_cls_label, [1, tf.shape(sum_cls_label)[0], tf.shape(sum_cls_label)[1], 1])
-        tf.summary.image('targe_cls', sum_cls_label, collections = ['train'])
-        tf.summary.image('input_im', input_im, collections = ['train'])
+        for i in range(0, self._nanchor):
+            tf.summary.image('cls_{}'.format(i), tf.expand_dims(cls[:, :, :, i], dim=-1),
+                                                                collections=['train'])
+            c_label = sum_cls_label[:, :, i]
+            c_label = tf.reshape(c_label, [1, tf.shape(c_label)[0], tf.shape(c_label)[1], 1])
+            tf.summary.image('targe_cls', c_label, collections=['train'])
+        tf.summary.image('input_im', input_im, collections=['train'])
 
     def _get_target_anchors(self, im_size, gt_bbox):
 
         im_height = tf.to_int32(im_size[1])
         im_width = tf.to_int32(im_size[2])
-        gt_bbox = tf.to_float(gt_bbox)
+        gt_bbox = tf.to_double(gt_bbox)
 
-        pos_box, neg_box, pos_position, neg_position, mask, label_map =\
+        pos_box, neg_box, pos_position, neg_position, mask, label_map, sampled_gt_bbox, t_s=\
             tf.py_func(anchor.anchor_training_samples, 
                        [im_width, im_height, gt_bbox, self._stride, 
                         self._ratio, self._scale,
                         self._pos_thr, self._neg_thr,
                         self._num_sample],
-                       [tf.float64, tf.float64, tf.int64, 
-                        tf.int64, tf.int64, tf.int64], 
+                       [tf.float64, tf.float64, tf.int64, tf.int64,
+                        tf.int64, tf.int64, tf.float64, tf.float64], 
                        name="gt_boxes")
 
         self.test = pos_box
@@ -133,8 +137,10 @@ class RPN(BaseModel):
 
     def _get_loss(self):
         with tf.name_scope('loss'):
-            cls_logits = self.layer['cls'][:, :, :, 1]
-            cls_logits = tf.reshape(cls_logits, [tf.shape(cls_logits)[1], tf.shape(cls_logits)[2]])
+            cls_logits = self.layer['cls']
+            cls_logits = tf.reshape(cls_logits, [tf.shape(cls_logits)[1], 
+                                                 tf.shape(cls_logits)[2], 
+                                                 tf.shape(cls_logits)[3]])
 
             self._comp_cls_loss(cls_logits, self._cls_label, self._cls_mask)
             return tf.add_n(tf.get_collection('losses'), name='result') 
@@ -177,14 +183,13 @@ if __name__ == '__main__':
     rpn = RPN(pre_train_path=vggpath, fine_tune=False)
     rpn.create_model([image, 1, im_size, gt_bbox])
 
-    pre_op = tf.nn.top_k(tf.nn.softmax(rpn.layer['output']), 
-                            k=5, sorted=True)
+    # pre_op = tf.nn.top_k(tf.nn.softmax(rpn.layer['output']), 
+    #                         k=5, sorted=True)
 
     train_op = rpn.get_train_op()
     cost_op = rpn.cls_loss
     summery_op = rpn.summary_list
-    # mask_label = rpn.m_label
-    # cls_logits = rpn.cls_logits
+
 
     writer = tf.summary.FileWriter(SAVE_DIR)
     db = DetectionDB('jpg', im_dir=im_path, xml_dir=xml_path, num_channel=3,
@@ -193,6 +198,7 @@ if __name__ == '__main__':
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         writer.add_graph(sess.graph)
+        batch_data = db.next_batch()
 
         step_cnt = 1
         while db.epochs_completed < 1:
@@ -203,6 +209,7 @@ if __name__ == '__main__':
             print('step: {}, cls_cost: {}'.format(step_cnt, re[1]))
             writer.add_summary(re[2], step_cnt)
             step_cnt += 1
+
         # writer.add_summary(summary, self.global_step)
 
     # print(np.array(test[0]).shape)
