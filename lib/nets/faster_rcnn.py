@@ -23,7 +23,8 @@ from utils.viz import tf_draw_bounding_box
 
 
 class RPN(BaseModel):
-    def __init__(self, pre_train_path, num_channels=3, fine_tune=True, learning_rate=1e-5,
+    def __init__(self, pre_train_path, num_channels=3,
+                 fine_tune=True, learning_rate=1e-5,
                  stride=16, ratios=(1, 0.5, 2), scales=(8, 16, 32),
                  pos_thr=0.7, neg_thr=0.3, num_sample_per_batch=128):
         self._vgg_path = pre_train_path
@@ -51,9 +52,11 @@ class RPN(BaseModel):
                             shape=[1, 4])
 
 
-        self.set_model_input([self._image, self._keep_prob, self._im_size, self._gt_bbox])
+        self.set_model_input([self._image, self._keep_prob,
+                              self._im_size, self._gt_bbox])
         self.set_dropout(self._keep_prob, keep_prob=0.5)
-        self.set_train_placeholder([self._image, self._gt_bbox, self._im_size])
+        self.set_train_placeholder([self._image, self._gt_bbox,
+                                    self._im_size])
 
     def _create_model(self):
         input_im = self.model_input[0]
@@ -63,12 +66,13 @@ class RPN(BaseModel):
         gt_bbox = self.model_input[3]
 
         self._cls_mask, self._cls_label, self._targe_bbox_para,\
-        self._pos_anchor_idx, self._pos_anchors, sampled_gt_bbox =\
+        self._pos_anchor_idx, self._pos_anchors, self._sampled_gt_bbox =\
             self._get_target_anchors(im_size[0], gt_bbox[0])
 
         self.layer = {}
 
-        vgg_model = VGG16_FCN(is_load=True, trainable_conv_3up=self._fine_tune,
+        vgg_model = VGG16_FCN(is_load=True,
+                              trainable_conv_3up=self._fine_tune,
                               pre_train_path=self._vgg_path)
         vgg_model.create_model([input_im, keep_prob])
         conv_out = vgg_model.layer['conv5_3']
@@ -91,37 +95,19 @@ class RPN(BaseModel):
                                        'reg_layer_{}'.format(i),
                                        wd=wd, init_w=init_w, init_b=init_b))
             pre_bbox_para = tf.transpose(
-                tf.stack([tf.gather(tf.reshape(c_reg, [-1]), self._pos_anchor_idx)
-                          for c_reg in reg]))
-            pre_bbox = tf.py_func(anchors_to_bbox, [self._pos_anchors, pre_bbox_para],
-                                  tf.float64, name="pre_bbox")
+                tf.stack([apply_mask(c_reg[0], self._cls_label) for c_reg in reg]))
+            pre_proposal_bbx = tf.py_func(anchors_to_bbox,
+                                  [self._pos_anchors, pre_bbox_para],
+                                  tf.float64, name="pre_proposal_bbx")
 
         self.layer['input'] = input_im
         self.layer['feat_map'] = feat_map
         self.layer['cls'] = cls
+        self.layer['proposal_score'] =tf.sigmoid(cls, name='proposal_score')
         self.layer['reg'] = reg
         self.layer['pre_bbox_para'] = pre_bbox_para
-
-    
-        self.test = tf.shape(sampled_gt_bbox)
-        self.test_2 = tf.shape(pre_bbox)
-
-        # gt_bbox_im = tf_draw_bounding_box(input_im, sampled_gt_bbox)
-        # tf.summary.image('gt', gt_bbox_im, collections=['train'])
-
-        # pre_bbox_im = tf.where(tf.shape(self._pos_anchors)[0] == 0,
-        #                        input_im,
-        #                        tf_draw_bounding_box(input_im, pre_bbox))
-        # tf.summary.image('pre', pre_bbox_im, collections=['train'])
-
-        # sum_cls_label = tf.cast(self._cls_label, tf.float64)
-        # for i in range(0, self._nanchor):
-        #     tf.summary.image('cls_{}'.format(i), tf.expand_dims(cls[:, :, :, i], dim=-1),
-        #                                                         collections=['train'])
-        #     c_label = sum_cls_label[:, :, i]
-        #     c_label = tf.reshape(c_label, [1, tf.shape(c_label)[0], tf.shape(c_label)[1], 1])
-        #     tf.summary.image('targe_cls_{}'.format(i), c_label, collections=['train'])
-
+        self.layer['pre_proposal_bbx'] = pre_proposal_bbx
+        
     def _get_target_anchors(self, im_size, gt_bbox):
 
         im_height = tf.to_int32(im_size[1])
@@ -140,14 +126,8 @@ class RPN(BaseModel):
                         tf.int64], 
                        name="gt_boxes")
 
-        self._cls_label = label_map
-        self._cls_mask = mask
-        self._sample_gt = sampled_gt_bbox
-        self._targe_bbox_para = targe_bbox_para
-        self._pos_anchor_idx = pos_anchor_idx
-        self._pos_anchors = pos_anchors
-
-        return mask, label_map, targe_bbox_para, pos_anchor_idx, pos_anchors, sampled_gt_bbox
+        return tf.cast(mask, tf.int32), tf.cast(label_map, tf.int32),\
+            targe_bbox_para, pos_anchor_idx, pos_anchors, sampled_gt_bbox
 
     def _get_loss(self):
         with tf.name_scope('loss'):
@@ -156,7 +136,9 @@ class RPN(BaseModel):
                                                  tf.shape(cls_logits)[2], 
                                                  tf.shape(cls_logits)[3]])
             
-            self.cls_loss = get_cls_loss(cls_logits, self._cls_label, self._cls_mask)
+            self.cls_loss = get_cls_loss(cls_logits,
+                                         self._cls_label,
+                                         self._cls_mask)
             self.reg_loss = get_reg_loss(self.layer['reg'],
                                          self._pos_anchor_idx,
                                          self.layer['pre_bbox_para'],
@@ -178,9 +160,73 @@ class RPN(BaseModel):
         return train_op
 
     def _setup_summery(self):
+        self.test = self._get_loss()
+        self.test_2 = self.test
         tf.summary.image('input_im', self.layer['input'], collections=['train'])
         tf.summary.scalar('reg_loss', self.reg_loss, collections = ['train'])
         tf.summary.scalar('cls_loss', self.cls_loss, collections = ['train'])
+        with tf.name_scope('scales'):
+            summery_cls_label = tf.cast(self._cls_label, tf.float64)
+            for i in range(0, self._nanchor):
+                tf.summary.image('cls_{}'.format(i), 
+                                 tf.expand_dims(
+                                    self.layer['cls'][:, :, :, i], dim=-1),
+                                 collections=['train'])
+                c_label = summery_cls_label[:, :, i]
+                c_label = tf.reshape(
+                    c_label,
+                    [1, tf.shape(c_label)[0], tf.shape(c_label)[1], 1])
+                tf.summary.image('targe_cls_{}'.format(i), c_label,
+                                 collections=['train'])
+        with tf.name_scope('bbox'):
+            o_im = tf.cast(self.layer['input'], tf.uint8)
+            category_index = {1: {'id': 1, 'name': 'non'}, 2: {'id': 2, 'name': 'object'}}
+            pre_prob = tf.gather(
+                tf.reshape(self.layer['proposal_score'], [-1]),
+                self._pos_anchor_idx)
+            scores = tf.expand_dims(pre_prob, dim=0)
+            classes = tf.expand_dims(
+                tf.where(tf.less(pre_prob, 0.5),
+                         tf.ones_like(pre_prob),
+                         2 * tf.ones_like(pre_prob)), dim=0)
+
+            pre_proposal_bbox_im = tf.where(
+                tf.shape(self._pos_anchors)[0] == 0,
+                o_im,
+                tf_draw_bounding_box(o_im,
+                                     self.layer['pre_proposal_bbx'],
+                                     classes,
+                                     scores,
+                                     category_index,
+                                     max_boxes_to_draw=200,
+                                     min_score_thresh=0.1))
+            tf.summary.image('pre_prosal', pre_proposal_bbox_im,
+                             collections=['train'])
+
+            scores = tf.expand_dims(tf.ones_like(self._pos_anchor_idx), dim=0)
+            classes = tf.expand_dims(
+                2 * tf.ones_like(self._pos_anchor_idx), dim=0)
+            pos_anchor_im = tf.where(tf.shape(self._pos_anchors)[0] == 0,
+                                     o_im,
+                                     tf_draw_bounding_box(
+                                        o_im,
+                                        self._pos_anchors,
+                                        classes,
+                                        scores,
+                                        category_index,
+                                        max_boxes_to_draw=200,
+                                        min_score_thresh=0.1))
+            tf.summary.image('anchor', pos_anchor_im, collections=['train'])
+
+            gt_bbox_im = tf_draw_bounding_box(o_im,
+                                              self._sampled_gt_bbox,
+                                              classes,
+                                              scores,
+                                              category_index,
+                                              max_boxes_to_draw=200,
+                                              min_score_thresh=0.1)
+            tf.summary.image('gt', gt_bbox_im, collections=['train'])
+
         self.summary_list = tf.summary.merge_all('train')
 
 
@@ -203,7 +249,7 @@ if __name__ == '__main__':
                             shape=[1, None, 4])
 
 
-    rpn = RPN(pre_train_path=vggpath, fine_tune=False)
+    rpn = RPN(pre_train_path=vggpath, fine_tune=True)
     rpn.create_model([image, 1, im_size, gt_bbox])
 
     # pre_op = tf.nn.top_k(tf.nn.softmax(rpn.layer['output']), 
@@ -232,7 +278,8 @@ if __name__ == '__main__':
             batch_data = db.next_batch()
             im = batch_data[0]
             bbox = batch_data[1]
-            re = sess.run([train_op, cls_cost_op, reg_cost_op, summery_op, test_op, test_op_2], feed_dict={image: im, im_size: [im.shape], gt_bbox: bbox})
+            re = sess.run([train_op, cls_cost_op, reg_cost_op, summery_op, test_op, test_op_2],
+                          feed_dict={image: im, im_size: [im.shape], gt_bbox: bbox})
             print('step: {}, cls_cost: {}, reg_cost: {}, cost: {}'.format(step_cnt, re[1], re[2], re[1] + re[2]))
             print(re[4])
             print(re[5])

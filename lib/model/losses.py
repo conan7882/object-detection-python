@@ -11,11 +11,11 @@ def get_reg_loss(pre_reg, pos_anchors, pre_t, t_s):
     with tf.name_scope('reg_loss'):
         t_s = tf.cast(t_s, pre_reg[0].dtype)
         reg_l1_smooth = l1_smooth_loss(pre_t, t_s)
-        n_anchor_location = tf.cast(tf.shape(pre_reg[0])[1] * tf.shape(pre_reg[0])[2], tf.float32)
-        reg_l1_smooth_loss = 10 * tf.reduce_sum(reg_l1_smooth) / n_anchor_location
+        n_anchor_location = tf.cast(tf.shape(pre_reg[0])[1] *\
+                            tf.shape(pre_reg[0])[2], tf.float32)
+        reg_l1_smooth_loss = 10 * tf.reduce_sum(reg_l1_smooth) /\
+                             n_anchor_location
         tf.add_to_collection('losses', reg_l1_smooth_loss)
-        # tf.summary.scalar('reg_loss', reg_l1_smooth_loss, 
-        #                   collections = ['train'])
         return reg_l1_smooth_loss
 
 def get_cls_loss(pre_logits, label, mask):
@@ -25,8 +25,6 @@ def get_cls_loss(pre_logits, label, mask):
         cross_entropy_loss = tf.reduce_mean(cross_entropy, 
                                             name='cross_entropy_cls')
         tf.add_to_collection('losses', cross_entropy_loss)
-        # tf.summary.scalar('cls_loss', cross_entropy_loss, 
-        #                       collections = ['train'])
         return cross_entropy_loss
 
 def masked_softmax_cross_entropy_with_logits(

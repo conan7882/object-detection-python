@@ -77,18 +77,22 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
     """
 
     # if f_w is None or f_h is None:
-    f_size = list(map(int, [np.floor(im_width / stride), np.floor(im_height / stride)]))
+    f_size = list(map(int, [np.floor(im_width / stride), 
+                            np.floor(im_height / stride)]))
     f_w = f_size[0]
     f_h = f_size[1]
 
-    im_anchors, anchor_position = gen_im_anchors(f_w, f_h, stride=stride, ratios=ratios, scales=scales)
+    # Order based on [n_anchor, feat_with, feat_height]
+    im_anchors, anchor_position = gen_im_anchors(f_w, f_h, stride=stride,
+                                                ratios=ratios, scales=scales)
 
     valid_anchors, valid_positions =\
         remove_cross_boundary_anchors(im_width, im_height, im_anchors, anchor_position)
 
     pos_anchor, neg_anchor, pos_position, neg_position, pos_gt_idx =\
         get_gt_anchors(valid_anchors, valid_positions, gt_bbox,
-                       pos_thr=pos_thr, neg_thr=neg_thr, num_sample=num_sample)
+                       pos_thr=pos_thr, neg_thr=neg_thr,
+                       num_sample=num_sample)
 
     n_anchor_set = len(ratios) * len(scales)
 
@@ -99,26 +103,42 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
 
     mask = _fill_map(mask, pos_position, 1)
     mask = _fill_map(mask, neg_position, 1)
-
     label_map = _fill_map(label_map, pos_position, 1)
 
     mask = mask.astype(int)
     label_map = label_map.astype(int)
 
-    sampled_gt_bbox = gt_bbox[pos_gt_idx, :]
-    t_s = comp_regression_paras(pos_anchor, sampled_gt_bbox)
-
     pos_anchor_idx = _map_position_to_index(label_map, pos_position)
+
+    sampled_gt_bbox = gt_bbox[pos_gt_idx, :]
+
+    # pos_anchor_idx = _map_position_to_index(label_map, pos_position)
+
+    # Order based on [feat_with, feat_height, n_anchor]
+    trans_idx = _index_awh2wha(pos_anchor_idx)
+    pos_anchor_idx = pos_anchor_idx[trans_idx]
+    pos_anchor = _awh2wha(pos_anchor, trans_idx)
+    pos_position = _awh2wha(pos_position, trans_idx)
+    sampled_gt_bbox = _awh2wha(sampled_gt_bbox, trans_idx)
+    t_s = comp_regression_paras(pos_anchor, sampled_gt_bbox)
 
     print('number of samples: {}, number of positive: {}, {}, {}'.\
         format(np.sum(mask), np.sum(label_map), len(pos_gt_idx), len(pos_anchor_idx)))
 
-    return pos_anchor, neg_anchor, pos_position, neg_position, mask, label_map, sampled_gt_bbox, t_s, pos_anchor_idx
+    return pos_anchor, neg_anchor, pos_position, neg_position,\
+        mask, label_map, sampled_gt_bbox, t_s, pos_anchor_idx
 
 def _map_position_to_index(in_map, position):
     t = position.transpose()
     t = np.vstack([t[1], t[0], t[2]])
     return np.ravel_multi_index(t, dims=in_map.shape)
+
+def _index_awh2wha(awh_idx):
+    return np.argsort(awh_idx)
+
+def _awh2wha(in_array, idx):
+    assert in_array.shape[0] == len(idx)
+    return in_array[idx, :]
 
 
 def _fill_map(map_fill, position, fill_val):
@@ -130,8 +150,6 @@ def _fill_map(map_fill, position, fill_val):
         map_fill[p[1], p[0], p[2]] = fill_val
 
     return map_fill
-
-
 
 
 def get_gt_anchors(im_anchors, positions, gt_bbox, pos_thr=0.7, neg_thr=0.3, num_sample=128):
