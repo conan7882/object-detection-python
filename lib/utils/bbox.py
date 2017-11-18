@@ -46,6 +46,23 @@ def bbox_overlap_ratio(box_1, box_2):
     inter_area = bbox_area(bbox_intersec(box_1, box_2))
     return inter_area / (bbox_area(box_1) + bbox_area(box_2) - inter_area)
 
+def box2ctrwh(box):
+    if len(np.shape(np.array(box))) == 1:
+        box = [box]
+    box = np.array(box)
+    w = box[:, 2] - box[:, 0] + 1
+    h = box[:, 3] - box[:, 1] + 1
+    cx = box[:, 0] + 0.5 * (w - 1)
+    cy = box[:, 1] + 0.5 * (h - 1)
+    return cx, cy, w, h
+
+def ctrwh2box(cx, cy, w, h):
+    xmin = cx - 0.5 * (w - 1)
+    ymin = cy - 0.5 * (h - 1)
+    xmax = w - 1 + xmin
+    ymax = h - 1 + ymin
+    return np.vstack([xmin, ymin, xmax, ymax]).transpose()
+
 if __name__ == '__main__':
     box_1 = [1, 1, 300, 100]
     box_2 = [10, 10, 150, 200]

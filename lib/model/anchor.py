@@ -22,6 +22,7 @@ import numpy.matlib
 import sys
 sys.path.append('../../lib/')
 import utils.bbox as bbox
+from model.bbox_anchor_transform import comp_regression_paras
 
 def anchor_training_samples(im_width, im_height, gt_bbox,
                             stride=16, 
@@ -58,7 +59,7 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
         neg_anchor (np.array): list of negative training anchor samples with
             format [[xmin, ymin, xmax, ymax], ...]
         pos_position (np.array): list of position of positive samples in
-            output of cls layer
+            output of cls layer [x, y, scale]
         neg_position (np.array): list of position of negative samples in
             output of cls layer
         mask (np.array): mask of training samples corresponding to output
@@ -69,6 +70,7 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
             each positive training samples 
         t_s (np.array): bounding box regression parameters for each positive
             training anchors with format [[tx, ty, tw, th], ...]
+        pos_anchor_idx (int): 
 
     Note:
         All corresponding outputs maintain the same orders.
@@ -106,10 +108,18 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
     sampled_gt_bbox = gt_bbox[pos_gt_idx, :]
     t_s = comp_regression_paras(pos_anchor, sampled_gt_bbox)
 
-    print('number of samples: {}, number of positive: {}, {}'.\
-        format(np.sum(mask), np.sum(label_map), len(pos_gt_idx)))
+    pos_anchor_idx = _map_position_to_index(label_map, pos_position)
 
-    return pos_anchor, neg_anchor, pos_position, neg_position, mask, label_map, sampled_gt_bbox, t_s
+    print('number of samples: {}, number of positive: {}, {}, {}'.\
+        format(np.sum(mask), np.sum(label_map), len(pos_gt_idx), len(pos_anchor_idx)))
+
+    return pos_anchor, neg_anchor, pos_position, neg_position, mask, label_map, sampled_gt_bbox, t_s, pos_anchor_idx
+
+def _map_position_to_index(in_map, position):
+    t = position.transpose()
+    t = np.vstack([t[1], t[0], t[2]])
+    return np.ravel_multi_index(t, dims=in_map.shape)
+
 
 def _fill_map(map_fill, position, fill_val):
     # position [x, y]
@@ -121,20 +131,7 @@ def _fill_map(map_fill, position, fill_val):
 
     return map_fill
 
-def comp_regression_paras(anchors, bbox):
-    """
-    Returns:
-        [tx, ty, tw, th]
-    """
-    x, y, w, h = bbox[:, 0], bbox[:, 1], bbox[:, 2] - bbox[:, 0], bbox[:, 3] - bbox[:, 1]
-    xa, ya, wa, ha = anchors[:, 0], anchors[:, 1], anchors[:, 2] - anchors[:, 0], anchors[:, 3] - anchors[:, 1]
 
-    tx = (x - xa) / wa
-    ty = (y - ya) / ha
-    tw = np.log(w / wa)
-    th = np.log(h / ha)
-
-    return np.vstack([tx, ty, tw, th]).transpose()
 
 
 def get_gt_anchors(im_anchors, positions, gt_bbox, pos_thr=0.7, neg_thr=0.3, num_sample=128):
@@ -191,21 +188,22 @@ def get_gt_anchors(im_anchors, positions, gt_bbox, pos_thr=0.7, neg_thr=0.3, num
     n_neg = max(num_sample, 2 * num_sample - n_pos)
 
     pos_anchor, pos_position, pos_gt_idx = random_sample_anchor(
-        pos_anchor, pos_position, n_pos, gt_idx=pos_gt_idx)
+        pos_anchor, pos_position, n_pos, pos_idx, gt_idx=pos_gt_idx)
 
-    neg_anchor, neg_position, unuse  = random_sample_anchor(
-        neg_anchor, neg_position, n_neg)
+    neg_anchor, neg_position  = random_sample_anchor(
+        neg_anchor, neg_position, n_neg, neg_idx)
 
     return pos_anchor, neg_anchor, pos_position, neg_position, pos_gt_idx
 
 
-def random_sample_anchor(anchors, positions, num_sample, gt_idx=None):
+def random_sample_anchor(anchors, positions, num_sample, anchor_idx, gt_idx=None):
     n_anchor = anchors.shape[0]
     if n_anchor <= 0:
+        # return anchors, positions, [], np.empty(shape=(0, 0), dtype=int)
         return anchors, positions, []
     r_idx = np.random.choice(n_anchor, size=num_sample, replace=False)
     if gt_idx is None:
-        return anchors[r_idx, :], positions[r_idx, :], []
+        return anchors[r_idx, :], positions[r_idx, :]
     else:
         return anchors[r_idx, :], positions[r_idx, :], gt_idx[r_idx]
 

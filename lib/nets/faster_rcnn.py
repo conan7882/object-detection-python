@@ -17,12 +17,13 @@ import sys
 sys.path.append('../../lib/')
 from dataflow.detectiondb import DetectionDB
 import model.anchor as anchor
-from model.masked_losses import masked_softmax_cross_entropy_with_logits
-
+from model.losses import masked_sigmoid_cross_entropy_with_logits, l1_smooth_loss, get_reg_loss
+from model.bbox_anchor_transform import comp_regression_paras, anchors_to_bbox
+from utils.viz import tf_draw_bounding_box
 
 
 class RPN(BaseModel):
-    def __init__(self, pre_train_path, num_channels=3, fine_tune=True, learning_rate=1e-3,
+    def __init__(self, pre_train_path, num_channels=3, fine_tune=True, learning_rate=1e-5,
                  stride=16, ratios=(1, 0.5, 2), scales=(8, 16, 32),
                  pos_thr=0.7, neg_thr=0.3, num_sample_per_batch=128):
         self._vgg_path = pre_train_path
@@ -60,45 +61,66 @@ class RPN(BaseModel):
 
         im_size = self.model_input[2]
         gt_bbox = self.model_input[3]
+
         self._get_target_anchors(im_size[0], gt_bbox[0])
 
         self.layer = {}
 
         vgg_model = VGG16_FCN(is_load=True, trainable_conv_3up=self._fine_tune,
                               pre_train_path=self._vgg_path)
-
         vgg_model.create_model([input_im, keep_prob])
-        
         conv_out = vgg_model.layer['conv5_3']
 
         wd = 0.0005
         init_w = tf.random_normal_initializer(stddev = 0.01)
         init_b = tf.random_normal_initializer(stddev = 0.01)
 
-        feat_map = layers.conv(conv_out, 3, 512, 'feat_map', wd=wd, init_w=init_w, init_b=init_b)
+        feat_map = layers.conv(conv_out, 3, 512, 'feat_map', wd=wd,
+                               init_w=init_w, init_b=init_b)
+
         # cls layer
-        cls = layers.conv(feat_map, 1, self._nanchor, 'cls_layer', wd=wd, init_w=init_w, init_b=init_b)
-        
+        cls = layers.conv(feat_map, 1, self._nanchor, 'cls_layer',
+                          wd=wd, init_w=init_w, init_b=init_b)
         # reg layer
-        # with tf.variable_scope('reg_layer'):
-        #     reg = []
-        #     for i in range(0, self._nanchor):
-        #         reg.append(layers.conv(feat_map, 1, 4, 'reg_layer_{}'.format(i),
-        #                                wd=wd, init_w=init_w, init_b=init_b))
+        with tf.variable_scope('reg_layer'):
+            reg = []
+            for i in range(0, 4):
+                reg.append(layers.conv(feat_map, 1, self._nanchor,
+                                       'reg_layer_{}'.format(i),
+                                       wd=wd, init_w=init_w, init_b=init_b))
+            pre_bbox_para = tf.transpose(
+                tf.stack([tf.gather(tf.reshape(c_reg, [-1]), self._pos_anchor_idx)
+                          for c_reg in reg]))
+            pre_bbox = tf.py_func(anchors_to_bbox, [self._pos_anchors, pre_bbox_para],
+                                  tf.float64, name="pre_bbox")
 
         self.layer['input'] = input_im
         self.layer['feat_map'] = feat_map
         self.layer['cls'] = cls
-        # self.layer['reg'] = reg
+        self.layer['reg'] = reg
+        self.layer['pre_bbox_para'] = pre_bbox_para
         self.layer['output'] = vgg_model.layer['gap_out']
 
-        sum_cls_label = tf.cast(self._cls_label, tf.float64)
-        for i in range(0, self._nanchor):
-            tf.summary.image('cls_{}'.format(i), tf.expand_dims(cls[:, :, :, i], dim=-1),
-                                                                collections=['train'])
-            c_label = sum_cls_label[:, :, i]
-            c_label = tf.reshape(c_label, [1, tf.shape(c_label)[0], tf.shape(c_label)[1], 1])
-            tf.summary.image('targe_cls', c_label, collections=['train'])
+        
+
+        self.test = tf.shape(self._sample_gt)
+        self.test_2 = tf.shape(pre_bbox)
+
+        # gt_bbox_im = tf_draw_bounding_box(input_im, self._sample_gt)
+        # tf.summary.image('gt', gt_bbox_im, collections=['train'])
+
+        # pre_bbox_im = tf.where(tf.shape(self._pos_anchors)[0] == 0,
+        #                        input_im,
+        #                        tf_draw_bounding_box(input_im, pre_bbox))
+        # tf.summary.image('pre', pre_bbox_im, collections=['train'])
+
+        # sum_cls_label = tf.cast(self._cls_label, tf.float64)
+        # for i in range(0, self._nanchor):
+        #     tf.summary.image('cls_{}'.format(i), tf.expand_dims(cls[:, :, :, i], dim=-1),
+        #                                                         collections=['train'])
+        #     c_label = sum_cls_label[:, :, i]
+        #     c_label = tf.reshape(c_label, [1, tf.shape(c_label)[0], tf.shape(c_label)[1], 1])
+        #     tf.summary.image('targe_cls_{}'.format(i), c_label, collections=['train'])
         tf.summary.image('input_im', input_im, collections=['train'])
 
     def _get_target_anchors(self, im_size, gt_bbox):
@@ -107,25 +129,46 @@ class RPN(BaseModel):
         im_width = tf.to_int32(im_size[2])
         gt_bbox = tf.to_double(gt_bbox)
 
-        pos_box, neg_box, pos_position, neg_position, mask, label_map, sampled_gt_bbox, t_s=\
+        pos_anchors, neg_anchors, pos_position, neg_position,\
+        mask, label_map, sampled_gt_bbox, targe_bbox_para, pos_anchor_idx=\
             tf.py_func(anchor.anchor_training_samples, 
                        [im_width, im_height, gt_bbox, self._stride, 
                         self._ratio, self._scale,
                         self._pos_thr, self._neg_thr,
                         self._num_sample],
                        [tf.float64, tf.float64, tf.int64, tf.int64,
-                        tf.int64, tf.int64, tf.float64, tf.float64], 
+                        tf.int64, tf.int64, tf.float64, tf.float64,
+                        tf.int64], 
                        name="gt_boxes")
 
-        self.test = pos_box
         self._cls_label = label_map
         self._cls_mask = mask
+        self._sample_gt = sampled_gt_bbox
+        self._targe_bbox_para = targe_bbox_para
+        self._pos_anchor_idx = pos_anchor_idx
+        self._pos_anchors = pos_anchors
 
+        return mask, label_map, targe_bbox_para, pos_anchor_idx, pos_anchors, sampled_gt_bbox
+
+
+    # def _comp_reg_loss(self, pre_reg, pos_anchors, pre_t, t_s):
+    #     with tf.name_scope('reg_loss'):
+    #         t_s = tf.cast(t_s, pre_reg[0].dtype)
+    #         reg_l1_smooth = l1_smooth_loss(pre_t, t_s)
+    #         n_anchor_location = tf.cast(tf.shape(pre_reg[0])[1] * tf.shape(pre_reg[0])[2], tf.float32)
+    #         reg_l1_smooth_loss = 10 * tf.reduce_sum(reg_l1_smooth) / n_anchor_location
+    #         tf.add_to_collection('losses', reg_l1_smooth_loss)
+    #         tf.summary.scalar('reg_loss', reg_l1_smooth_loss, 
+    #                           collections = ['train'])
+    #         self.reg_loss = reg_l1_smooth_loss
+
+    
 
     def _comp_cls_loss(self, pre_logits, label, mask):
         with tf.name_scope('cls_loss'):
-            cross_entropy = masked_softmax_cross_entropy_with_logits(
+            cross_entropy = masked_sigmoid_cross_entropy_with_logits(
                 logits=pre_logits, labels=label, mask=mask)
+            
             cross_entropy_loss = tf.reduce_mean(cross_entropy, 
                                 name='cross_entropy_cls')
             tf.add_to_collection('losses', cross_entropy_loss)
@@ -134,6 +177,7 @@ class RPN(BaseModel):
                               collections = ['train'])
             self.cls_loss = cross_entropy_loss
 
+            # self.test = cross_entropy_loss
 
     def _get_loss(self):
         with tf.name_scope('loss'):
@@ -142,7 +186,10 @@ class RPN(BaseModel):
                                                  tf.shape(cls_logits)[2], 
                                                  tf.shape(cls_logits)[3]])
 
+            self.reg_loss = get_reg_loss(self.layer['reg'], self._pos_anchor_idx, self.layer['pre_bbox_para'], self._targe_bbox_para)
+
             self._comp_cls_loss(cls_logits, self._cls_label, self._cls_mask)
+            # self._comp_reg_loss(self.layer['reg'], self._pos_anchor_idx, self.layer['pre_t'], self._targe_bbox_para)
             return tf.add_n(tf.get_collection('losses'), name='result') 
 
     def _get_optimizer(self):
@@ -160,6 +207,18 @@ class RPN(BaseModel):
 
     def _setup_summery(self):
         self.summary_list = tf.summary.merge_all('train')
+
+    # temp
+    def get_grads(self):
+        try:
+            return self.grads
+        except AttributeError:
+            optimizer = self.get_optimizer()
+            loss = self.get_loss()
+            self.grads = optimizer.compute_gradients(loss)
+            # [tf.summary.histogram('gradient/' + var.name, grad, 
+            #   collections = [self.default_collection]) for grad, var in self.grads]
+        return self.grads
 
 SAVE_DIR = '/home/qge2/workspace/data/tmp/'
 
@@ -187,8 +246,12 @@ if __name__ == '__main__':
     #                         k=5, sorted=True)
 
     train_op = rpn.get_train_op()
-    cost_op = rpn.cls_loss
+    cls_cost_op = rpn.cls_loss
+    reg_cost_op = rpn.reg_loss
     summery_op = rpn.summary_list
+
+    test_op = rpn.test
+    test_op_2 = rpn.test_2
 
 
     writer = tf.summary.FileWriter(SAVE_DIR)
@@ -205,9 +268,11 @@ if __name__ == '__main__':
             batch_data = db.next_batch()
             im = batch_data[0]
             bbox = batch_data[1]
-            re = sess.run([train_op, cost_op, summery_op], feed_dict={image: im, im_size: [im.shape], gt_bbox: bbox})
-            print('step: {}, cls_cost: {}'.format(step_cnt, re[1]))
-            writer.add_summary(re[2], step_cnt)
+            re = sess.run([train_op, cls_cost_op, reg_cost_op, summery_op, test_op, test_op_2], feed_dict={image: im, im_size: [im.shape], gt_bbox: bbox})
+            print('step: {}, cls_cost: {}, reg_cost: {}, cost: {}'.format(step_cnt, re[1], re[2], re[1] + re[2]))
+            print(re[4])
+            print(re[5])
+            writer.add_summary(re[3], step_cnt)
             step_cnt += 1
 
         # writer.add_summary(summary, self.global_step)
