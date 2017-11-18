@@ -18,6 +18,17 @@ def get_reg_loss(pre_reg, pos_anchors, pre_t, t_s):
         #                   collections = ['train'])
         return reg_l1_smooth_loss
 
+def get_cls_loss(pre_logits, label, mask):
+    with tf.name_scope('cls_loss'):
+        cross_entropy = masked_sigmoid_cross_entropy_with_logits(
+            logits=pre_logits, labels=label, mask=mask)  
+        cross_entropy_loss = tf.reduce_mean(cross_entropy, 
+                                            name='cross_entropy_cls')
+        tf.add_to_collection('losses', cross_entropy_loss)
+        # tf.summary.scalar('cls_loss', cross_entropy_loss, 
+        #                       collections = ['train'])
+        return cross_entropy_loss
+
 def masked_softmax_cross_entropy_with_logits(
         logits, labels, dim=-1, mask=None,
         name='masked_softmax_cross_entropy_with_logits'):

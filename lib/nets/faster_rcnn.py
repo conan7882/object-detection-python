@@ -17,7 +17,7 @@ import sys
 sys.path.append('../../lib/')
 from dataflow.detectiondb import DetectionDB
 import model.anchor as anchor
-from model.losses import masked_sigmoid_cross_entropy_with_logits, l1_smooth_loss, get_reg_loss
+from model.losses import get_reg_loss, get_cls_loss
 from model.bbox_anchor_transform import comp_regression_paras, anchors_to_bbox
 from utils.viz import tf_draw_bounding_box
 
@@ -62,7 +62,9 @@ class RPN(BaseModel):
         im_size = self.model_input[2]
         gt_bbox = self.model_input[3]
 
-        self._get_target_anchors(im_size[0], gt_bbox[0])
+        self._cls_mask, self._cls_label, self._targe_bbox_para,\
+        self._pos_anchor_idx, self._pos_anchors, sampled_gt_bbox =\
+            self._get_target_anchors(im_size[0], gt_bbox[0])
 
         self.layer = {}
 
@@ -99,14 +101,12 @@ class RPN(BaseModel):
         self.layer['cls'] = cls
         self.layer['reg'] = reg
         self.layer['pre_bbox_para'] = pre_bbox_para
-        self.layer['output'] = vgg_model.layer['gap_out']
 
-        
-
-        self.test = tf.shape(self._sample_gt)
+    
+        self.test = tf.shape(sampled_gt_bbox)
         self.test_2 = tf.shape(pre_bbox)
 
-        # gt_bbox_im = tf_draw_bounding_box(input_im, self._sample_gt)
+        # gt_bbox_im = tf_draw_bounding_box(input_im, sampled_gt_bbox)
         # tf.summary.image('gt', gt_bbox_im, collections=['train'])
 
         # pre_bbox_im = tf.where(tf.shape(self._pos_anchors)[0] == 0,
@@ -121,7 +121,6 @@ class RPN(BaseModel):
         #     c_label = sum_cls_label[:, :, i]
         #     c_label = tf.reshape(c_label, [1, tf.shape(c_label)[0], tf.shape(c_label)[1], 1])
         #     tf.summary.image('targe_cls_{}'.format(i), c_label, collections=['train'])
-        tf.summary.image('input_im', input_im, collections=['train'])
 
     def _get_target_anchors(self, im_size, gt_bbox):
 
@@ -130,7 +129,7 @@ class RPN(BaseModel):
         gt_bbox = tf.to_double(gt_bbox)
 
         pos_anchors, neg_anchors, pos_position, neg_position,\
-        mask, label_map, sampled_gt_bbox, targe_bbox_para, pos_anchor_idx=\
+        mask, label_map, sampled_gt_bbox, targe_bbox_para, pos_anchor_idx =\
             tf.py_func(anchor.anchor_training_samples, 
                        [im_width, im_height, gt_bbox, self._stride, 
                         self._ratio, self._scale,
@@ -150,46 +149,19 @@ class RPN(BaseModel):
 
         return mask, label_map, targe_bbox_para, pos_anchor_idx, pos_anchors, sampled_gt_bbox
 
-
-    # def _comp_reg_loss(self, pre_reg, pos_anchors, pre_t, t_s):
-    #     with tf.name_scope('reg_loss'):
-    #         t_s = tf.cast(t_s, pre_reg[0].dtype)
-    #         reg_l1_smooth = l1_smooth_loss(pre_t, t_s)
-    #         n_anchor_location = tf.cast(tf.shape(pre_reg[0])[1] * tf.shape(pre_reg[0])[2], tf.float32)
-    #         reg_l1_smooth_loss = 10 * tf.reduce_sum(reg_l1_smooth) / n_anchor_location
-    #         tf.add_to_collection('losses', reg_l1_smooth_loss)
-    #         tf.summary.scalar('reg_loss', reg_l1_smooth_loss, 
-    #                           collections = ['train'])
-    #         self.reg_loss = reg_l1_smooth_loss
-
-    
-
-    def _comp_cls_loss(self, pre_logits, label, mask):
-        with tf.name_scope('cls_loss'):
-            cross_entropy = masked_sigmoid_cross_entropy_with_logits(
-                logits=pre_logits, labels=label, mask=mask)
-            
-            cross_entropy_loss = tf.reduce_mean(cross_entropy, 
-                                name='cross_entropy_cls')
-            tf.add_to_collection('losses', cross_entropy_loss)
-
-            tf.summary.scalar('cls_loss', cross_entropy_loss, 
-                              collections = ['train'])
-            self.cls_loss = cross_entropy_loss
-
-            # self.test = cross_entropy_loss
-
     def _get_loss(self):
         with tf.name_scope('loss'):
             cls_logits = self.layer['cls']
             cls_logits = tf.reshape(cls_logits, [tf.shape(cls_logits)[1], 
                                                  tf.shape(cls_logits)[2], 
                                                  tf.shape(cls_logits)[3]])
+            
+            self.cls_loss = get_cls_loss(cls_logits, self._cls_label, self._cls_mask)
+            self.reg_loss = get_reg_loss(self.layer['reg'],
+                                         self._pos_anchor_idx,
+                                         self.layer['pre_bbox_para'],
+                                         self._targe_bbox_para)
 
-            self.reg_loss = get_reg_loss(self.layer['reg'], self._pos_anchor_idx, self.layer['pre_bbox_para'], self._targe_bbox_para)
-
-            self._comp_cls_loss(cls_logits, self._cls_label, self._cls_mask)
-            # self._comp_reg_loss(self.layer['reg'], self._pos_anchor_idx, self.layer['pre_t'], self._targe_bbox_para)
             return tf.add_n(tf.get_collection('losses'), name='result') 
 
     def _get_optimizer(self):
@@ -206,19 +178,11 @@ class RPN(BaseModel):
         return train_op
 
     def _setup_summery(self):
+        tf.summary.image('input_im', self.layer['input'], collections=['train'])
+        tf.summary.scalar('reg_loss', self.reg_loss, collections = ['train'])
+        tf.summary.scalar('cls_loss', self.cls_loss, collections = ['train'])
         self.summary_list = tf.summary.merge_all('train')
 
-    # temp
-    def get_grads(self):
-        try:
-            return self.grads
-        except AttributeError:
-            optimizer = self.get_optimizer()
-            loss = self.get_loss()
-            self.grads = optimizer.compute_gradients(loss)
-            # [tf.summary.histogram('gradient/' + var.name, grad, 
-            #   collections = [self.default_collection]) for grad, var in self.grads]
-        return self.grads
 
 SAVE_DIR = '/home/qge2/workspace/data/tmp/'
 
@@ -275,19 +239,7 @@ if __name__ == '__main__':
             writer.add_summary(re[3], step_cnt)
             step_cnt += 1
 
-        # writer.add_summary(summary, self.global_step)
 
-    # print(np.array(test[0]).shape)
-    # print(np.array(test[1]).shape)
-    # # draw_bounding_box(np.squeeze(im), pre)
-    # fig, ax = plt.subplots(1)
-
-    # # Display the image
-    # ax.imshow(test[0])
-
-    # ax.axis('off')
-
-    # plt.show()
 
 
 
