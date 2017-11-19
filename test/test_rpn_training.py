@@ -11,7 +11,7 @@ from nets.faster_rcnn import RPN
 
 
 if __name__ == '__main__':
-	image = tf.placeholder(tf.float32, name='image',
+    image = tf.placeholder(tf.float32, name='image',
                            shape=[1, None, None, 3])
     im_size = tf.placeholder(tf.float32, name='im_size',
                              shape=[1, 4])
@@ -33,5 +33,5 @@ if __name__ == '__main__':
         im = batch_data[0]
         bbox = batch_data[1]
         re = sess.run(
-        	[train_op, summery_op],
+            [train_op, summery_op],
             feed_dict={image: im, im_size: [im.shape], gt_bbox: bbox})
