@@ -11,7 +11,7 @@ from tensorcv.models.base import BaseModel
 import tensorcv.models.layers as layers
 from tensorcv.utils.common import apply_mask
 
-from vgg import VGG16_FCN
+from vgg import VGG16_conv
 
 import sys
 sys.path.append('../../lib/')
@@ -71,7 +71,7 @@ class RPN(BaseModel):
 
         self.layer = {}
 
-        vgg_model = VGG16_FCN(is_load=True,
+        vgg_model = VGG16_conv(is_load=True,
                               trainable_conv_3up=self._fine_tune,
                               pre_train_path=self._vgg_path)
         vgg_model.create_model([input_im, keep_prob])
@@ -162,9 +162,9 @@ class RPN(BaseModel):
     def _setup_summery(self):
         self.test = self._get_loss()
         self.test_2 = self.test
-        tf.summary.image('input_im', self.layer['input'], collections=['train'])
-        tf.summary.scalar('reg_loss', self.reg_loss, collections = ['train'])
-        tf.summary.scalar('cls_loss', self.cls_loss, collections = ['train'])
+        # tf.summary.image('input_im', self.layer['input'], collections=['train'])
+        # tf.summary.scalar('reg_loss', self.reg_loss, collections = ['faster'])
+        # tf.summary.scalar('cls_loss', self.cls_loss, collections = ['faster'])
         with tf.name_scope('scales'):
             summery_cls_label = tf.cast(self._cls_label, tf.float64)
             for i in range(0, self._nanchor):
@@ -199,7 +199,7 @@ class RPN(BaseModel):
                                      scores,
                                      category_index,
                                      max_boxes_to_draw=200,
-                                     min_score_thresh=0.1))
+                                     min_score_thresh=0.01))
             tf.summary.image('pre_prosal', pre_proposal_bbox_im,
                              collections=['train'])
 
@@ -228,6 +228,7 @@ class RPN(BaseModel):
             tf.summary.image('gt', gt_bbox_im, collections=['train'])
 
         self.summary_list = tf.summary.merge_all('train')
+        # self.summary_faster_list = tf.summary.merge_all('faster')
 
 
 SAVE_DIR = '/home/qge2/workspace/data/tmp/'
@@ -259,31 +260,53 @@ if __name__ == '__main__':
     cls_cost_op = rpn.cls_loss
     reg_cost_op = rpn.reg_loss
     summery_op = rpn.summary_list
+    # summery_faster_op = rpn.summary_faster_list
 
     test_op = rpn.test
     test_op_2 = rpn.test_2
 
 
     writer = tf.summary.FileWriter(SAVE_DIR)
+    saver = tf.train.Saver()
     db = DetectionDB('jpg', im_dir=im_path, xml_dir=xml_path, num_channel=3,
                  rescale=600)
-    
+
+    trigger_step = 500
+    faster_trigger_step = 10
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         writer.add_graph(sess.graph)
         batch_data = db.next_batch()
 
         step_cnt = 1
-        while db.epochs_completed < 1:
+        sum_cls_cost = 0
+        sum_reg_cost = 0
+        while db.epochs_completed < 10:
             batch_data = db.next_batch()
             im = batch_data[0]
             bbox = batch_data[1]
             re = sess.run([train_op, cls_cost_op, reg_cost_op, summery_op, test_op, test_op_2],
                           feed_dict={image: im, im_size: [im.shape], gt_bbox: bbox})
             print('step: {}, cls_cost: {}, reg_cost: {}, cost: {}'.format(step_cnt, re[1], re[2], re[1] + re[2]))
-            print(re[4])
-            print(re[5])
-            writer.add_summary(re[3], step_cnt)
+            sum_cls_cost += re[1]
+            sum_reg_cost += re[2]
+
+            if step_cnt % faster_trigger_step == 0:
+                cls_cost_mean = sum_cls_cost * 1.0 / faster_trigger_step
+                reg_cost_mean = sum_reg_cost * 1.0 / faster_trigger_step
+                sum_cls_cost = 0
+                sum_reg_cost = 0
+                cost_mean = reg_cost_mean + cls_cost_mean
+
+                s = tf.Summary()
+                s.value.add(tag = 'mean/cls', simple_value = cls_cost_mean)
+                s.value.add(tag = 'mean/reg', simple_value = reg_cost_mean)
+                s.value.add(tag = 'mean/cost', simple_value = cost_mean)
+                writer.add_summary(s, step_cnt)
+
+            if step_cnt % trigger_step == 0:
+                saver.save(sess, SAVE_DIR, global_step = step_cnt)
+                writer.add_summary(re[3], step_cnt)
             step_cnt += 1
 
 
