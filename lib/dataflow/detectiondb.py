@@ -8,11 +8,12 @@ import numpy as np
 import os
 
 from tensorcv.dataflow.base import RNGDataFlow
-from tensorcv.dataflow.common import get_shape2D, print_warning
+from tensorcv.dataflow.common import get_shape2D
 
 # import sys
 # sys.path.append('../../lib/')
 from utils.dataset import get_file_list, load_image
+from utils.log import print_warning
 
 
 class DetectionDB(RNGDataFlow):

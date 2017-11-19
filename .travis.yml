@@ -4,8 +4,8 @@ python:
 install:
   - pip install -r requirements.txt
   - pip install flake8
-  # - pip install coveralls
-  # - pip install tensorflow
+  - pip install coveralls
+  - pip install tensorflow
   - pip install -U git+https://github.com/conan7882/DeepVision-tensorflow.git
 branches:
   only:
@@ -13,8 +13,9 @@ branches:
   - develop
 script:
   - flake8 lib/dataflow/ lib/model/ --ignore=F405,F403,E402,E501
-  - python test/test.py
+  - - coverage run --source=. test/test.py
+  - - coverage run --source=. test/test_rpn_training.py
   # - coverage run --source=. test/test.py
-# after_success:
+after_success:
 #   - coveralls
-  # - codecov
+  - codecov

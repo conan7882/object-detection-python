@@ -18,6 +18,7 @@ import model.anchor as anchor
 from model.losses import get_reg_loss, get_cls_loss
 from model.bbox_anchor_transform import anchors_to_bbox
 from utils.viz import tf_draw_bounding_box
+from utils.log import print_warning
 
 
 class RPN(BaseModel):
@@ -68,6 +69,11 @@ class RPN(BaseModel):
 
         self.layer = {}
 
+        if self._vgg_path is None:
+            is_load = False
+            print_warning('No pre-train vgg loaded!')
+        else:
+            is_load = True
         vgg_model = VGG16_conv(is_load=True,
                                trainable_conv_3up=self._fine_tune,
                                pre_train_path=self._vgg_path)
