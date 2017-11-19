@@ -50,7 +50,7 @@ def masked_softmax_cross_entropy_with_logits(
             # labels = tf.expand_dims(apply_mask(labels, mask), dim=-1)
 
         return tf.nn.softmax_cross_entropy_with_logits(
-                logits=logits, labels=labels, dim=dim, name='result')
+            logits=logits, labels=labels, dim=dim, name='result')
 
 
 def masked_sigmoid_cross_entropy_with_logits(
@@ -67,7 +67,7 @@ def masked_sigmoid_cross_entropy_with_logits(
             labels = apply_mask(labels, mask)
 
         return tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=logits, labels=labels, name='result')
+            logits=logits, labels=labels, name='result')
 
 
 def l1_smooth_loss(pre, target, name='l1_smooth_loss'):
