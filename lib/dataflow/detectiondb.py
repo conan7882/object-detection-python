@@ -8,12 +8,12 @@ import numpy as np
 import os
 
 from tensorcv.dataflow.base import RNGDataFlow
-# from tensorcv.dataflow.normalization import identity
-from tensorcv.dataflow.common import get_shape2D
+from tensorcv.dataflow.common import get_shape2D, print_warning
 
-import sys
-sys.path.append('../../lib/')
+# import sys
+# sys.path.append('../../lib/')
 from utils.dataset import get_file_list, load_image
+
 
 class DetectionDB(RNGDataFlow):
     """ Base class of dataset for object detection (with bounding box)
@@ -45,12 +45,12 @@ class DetectionDB(RNGDataFlow):
         self._load_file_list(im_ext_name)
         self._data_id = 0
         if self.size() == 0:
-            print_warning('No {} files in folder {}'.\
-                format(ext_name, data_dir))
+            print_warning('No {} files in folder {}'.
+                          format(im_ext_name, im_dir))
 
     def next_batch(self):
         assert self._batch_size <= self.size(), \
-        "batch_size cannot be larger than data size"
+            "batch_size cannot be larger than data size"
 
         start = self._data_id
         self._data_id += self._batch_size
@@ -69,7 +69,8 @@ class DetectionDB(RNGDataFlow):
         for k in range(start, end):
             im_path = self._im_list[k]
             im_data = load_image(im_path, read_channel=self._read_channel,
-                            resize=self._resize, rescale_shorter=self._rescale)
+                                 resize=self._resize,
+                                 rescale_shorter=self._rescale)
             im_list.extend(im_data[0])
             im_list = np.array(im_list)
             rescale_ratio = im_data[1]
@@ -80,7 +81,6 @@ class DetectionDB(RNGDataFlow):
 
         return [im_list, bbox_list]
 
-
     def _load_file_list(self, ext_name):
         im_dir = os.path.join(self._im_dir)
         names = get_file_list(im_dir, ext_name)
@@ -88,10 +88,9 @@ class DetectionDB(RNGDataFlow):
         im_names = names[1]
         self._xml_list = np.array(['{}.xml'.format(os.path.join(
             self._xml_dir, im.split('.')[0])) for im in im_names])
-    
+
         if self._shuffle:
             self._suffle_file_list()
-        
 
     def _suffle_file_list(self):
         idxs = np.arange(self.size())
@@ -99,7 +98,6 @@ class DetectionDB(RNGDataFlow):
 
         self._im_list = self._im_list[idxs]
         self._xml_list = self._xml_list[idxs]
-
 
     def _parse_bbox_xml(self, xml_path):
         """
@@ -116,9 +114,11 @@ class DetectionDB(RNGDataFlow):
             name = obj.find('name').text
 
             try:
-                cur_class = self._class_dict[name]
+                self._class_dict[name]
+                # cur_class = self._class_dict[name]
             except KeyError:
-                cur_class = self._class_dict[name] = self._nclass
+                self._class_dict[name] = self._nclass
+                # cur_class = self._class_dict[name]
                 self._nclass += 1
 
             box = obj.find('bndbox')
@@ -130,10 +130,11 @@ class DetectionDB(RNGDataFlow):
             box_list.append(box)
             # box_list.append((cur_class, box, name))
 
-        return np.array(box_list) 
+        return np.array(box_list)
 
     def size(self):
-        return self._im_list.shape[0]   
+        return self._im_list.shape[0]
+
 
 if __name__ == '__main__':
     from utils.viz import draw_bounding_box
@@ -147,8 +148,3 @@ if __name__ == '__main__':
     bbox = batch_data[1]
     print(bbox[0])
     draw_bounding_box(im[0], bbox[0])
-    # xml_path = '/Users/gq/workspace/Dataset/VOCdevkit/VOC2007/Annotations/000654.xml'
-    # bbox = db._parse_bbox_xml(xml_path)
-    # print(bbox)
-
-
