@@ -3,7 +3,7 @@
 # File: test.py
 # Author: Qian Ge <geqian1001@gmail.com>
 
-from dataflow import DetectionDB
+from dataflow.detectiondb import DetectionDB
 
 def test_dataflow():
 	im_path = '../data/VOC2007/'
