@@ -4,8 +4,6 @@
 # Author: Qian Ge <geqian1001@gmail.com>
 
 import tensorflow as tf
-import imageio
-import matplotlib.pyplot as plt
 
 from tensorcv.models.base import BaseModel
 import tensorcv.models.layers as layers
@@ -13,12 +11,12 @@ from tensorcv.utils.common import apply_mask
 
 from vgg import VGG16_conv
 
-import sys
-sys.path.append('../../lib/')
+# import sys
+# sys.path.append('../../lib/')
 from dataflow.detectiondb import DetectionDB
 import model.anchor as anchor
 from model.losses import get_reg_loss, get_cls_loss
-from model.bbox_anchor_transform import comp_regression_paras, anchors_to_bbox
+from model.bbox_anchor_transform import anchors_to_bbox
 from utils.viz import tf_draw_bounding_box
 
 
@@ -45,12 +43,11 @@ class RPN(BaseModel):
     def _create_input(self):
         self._keep_prob = tf.placeholder(tf.float32, name='keep_prob')
         self._image = tf.placeholder(tf.float32, name='image',
-                            shape=[1, None, None, self._nchannel])
+                                     shape=[1, None, None, self._nchannel])
         self._gt_bbox = tf.placeholder(tf.float32, name='gt_bbox',
-                            shape=[1, None, 4])
+                                       shape=[1, None, 4])
         self._im_size = tf.placeholder(tf.float32, name='im_size',
-                            shape=[1, 4])
-
+                                       shape=[1, 4])
 
         self.set_model_input([self._image, self._keep_prob,
                               self._im_size, self._gt_bbox])
@@ -66,20 +63,20 @@ class RPN(BaseModel):
         gt_bbox = self.model_input[3]
 
         self._cls_mask, self._cls_label, self._targe_bbox_para,\
-        self._pos_anchor_idx, self._pos_anchors, self._sampled_gt_bbox =\
+            self._pos_anchor_idx, self._pos_anchors, self._sampled_gt_bbox =\
             self._get_target_anchors(im_size[0], gt_bbox[0])
 
         self.layer = {}
 
         vgg_model = VGG16_conv(is_load=True,
-                              trainable_conv_3up=self._fine_tune,
-                              pre_train_path=self._vgg_path)
+                               trainable_conv_3up=self._fine_tune,
+                               pre_train_path=self._vgg_path)
         vgg_model.create_model([input_im, keep_prob])
         conv_out = vgg_model.layer['conv5_3']
 
         wd = 0.0005
-        init_w = tf.random_normal_initializer(stddev = 0.01)
-        init_b = tf.random_normal_initializer(stddev = 0.01)
+        init_w = tf.random_normal_initializer(stddev=0.01)
+        init_b = tf.random_normal_initializer(stddev=0.01)
 
         feat_map = layers.conv(conv_out, 3, 512, 'feat_map', wd=wd,
                                init_w=init_w, init_b=init_b)
@@ -95,19 +92,21 @@ class RPN(BaseModel):
                                        'reg_layer_{}'.format(i),
                                        wd=wd, init_w=init_w, init_b=init_b))
             pre_bbox_para = tf.transpose(
-                tf.stack([apply_mask(c_reg[0], self._cls_label) for c_reg in reg]))
-            pre_proposal_bbx = tf.py_func(anchors_to_bbox,
-                                  [self._pos_anchors, pre_bbox_para],
-                                  tf.float64, name="pre_proposal_bbx")
+                tf.stack([apply_mask(c_reg[0], self._cls_label)
+                          for c_reg in reg]))
+            pre_proposal_bbx = tf.py_func(
+                anchors_to_bbox,
+                [self._pos_anchors, pre_bbox_para],
+                tf.float64, name="pre_proposal_bbx")
 
         self.layer['input'] = input_im
         self.layer['feat_map'] = feat_map
         self.layer['cls'] = cls
-        self.layer['proposal_score'] =tf.sigmoid(cls, name='proposal_score')
+        self.layer['proposal_score'] = tf.sigmoid(cls, name='proposal_score')
         self.layer['reg'] = reg
         self.layer['pre_bbox_para'] = pre_bbox_para
         self.layer['pre_proposal_bbx'] = pre_proposal_bbx
-        
+
     def _get_target_anchors(self, im_size, gt_bbox):
 
         im_height = tf.to_int32(im_size[1])
@@ -115,16 +114,18 @@ class RPN(BaseModel):
         gt_bbox = tf.to_double(gt_bbox)
 
         pos_anchors, neg_anchors, pos_position, neg_position,\
-        mask, label_map, sampled_gt_bbox, targe_bbox_para, pos_anchor_idx =\
-            tf.py_func(anchor.anchor_training_samples, 
-                       [im_width, im_height, gt_bbox, self._stride, 
-                        self._ratio, self._scale,
-                        self._pos_thr, self._neg_thr,
-                        self._num_sample],
-                       [tf.float64, tf.float64, tf.int64, tf.int64,
-                        tf.int64, tf.int64, tf.float64, tf.float64,
-                        tf.int64], 
-                       name="gt_boxes")
+            mask, label_map, sampled_gt_bbox, targe_bbox_para,\
+            pos_anchor_idx =\
+            tf.py_func(
+                        anchor.anchor_training_samples,
+                        [im_width, im_height, gt_bbox, self._stride,
+                         self._ratio, self._scale,
+                         self._pos_thr, self._neg_thr,
+                         self._num_sample],
+                        [tf.float64, tf.float64, tf.int64, tf.int64,
+                         tf.int64, tf.int64, tf.float64, tf.float64,
+                         tf.int64],
+                        name="gt_boxes")
 
         return tf.cast(mask, tf.int32), tf.cast(label_map, tf.int32),\
             targe_bbox_para, pos_anchor_idx, pos_anchors, sampled_gt_bbox
@@ -132,10 +133,10 @@ class RPN(BaseModel):
     def _get_loss(self):
         with tf.name_scope('loss'):
             cls_logits = self.layer['cls']
-            cls_logits = tf.reshape(cls_logits, [tf.shape(cls_logits)[1], 
-                                                 tf.shape(cls_logits)[2], 
+            cls_logits = tf.reshape(cls_logits, [tf.shape(cls_logits)[1],
+                                                 tf.shape(cls_logits)[2],
                                                  tf.shape(cls_logits)[3]])
-            
+
             self.cls_loss = get_cls_loss(cls_logits,
                                          self._cls_label,
                                          self._cls_mask)
@@ -144,17 +145,16 @@ class RPN(BaseModel):
                                          self.layer['pre_bbox_para'],
                                          self._targe_bbox_para)
 
-            return tf.add_n(tf.get_collection('losses'), name='result') 
+            return tf.add_n(tf.get_collection('losses'), name='result')
 
     def _get_optimizer(self):
-        return tf.train.AdamOptimizer(beta1=0.9, 
-                                      learning_rate=self._lr) 
+        return tf.train.AdamOptimizer(beta1=0.9,
+                                      learning_rate=self._lr)
 
     def get_train_op(self):
         grads = self.get_grads()
         opt = self.get_optimizer()
         train_op = opt.apply_gradients(grads, name='train')
-
         self._setup_summery()
 
         return train_op
@@ -162,13 +162,10 @@ class RPN(BaseModel):
     def _setup_summery(self):
         self.test = self._get_loss()
         self.test_2 = self.test
-        # tf.summary.image('input_im', self.layer['input'], collections=['train'])
-        # tf.summary.scalar('reg_loss', self.reg_loss, collections = ['faster'])
-        # tf.summary.scalar('cls_loss', self.cls_loss, collections = ['faster'])
         with tf.name_scope('scales'):
             summery_cls_label = tf.cast(self._cls_label, tf.float64)
             for i in range(0, self._nanchor):
-                tf.summary.image('cls_{}'.format(i), 
+                tf.summary.image('cls_{}'.format(i),
                                  tf.expand_dims(
                                     self.layer['cls'][:, :, :, i], dim=-1),
                                  collections=['train'])
@@ -180,7 +177,8 @@ class RPN(BaseModel):
                                  collections=['train'])
         with tf.name_scope('bbox'):
             o_im = tf.cast(self.layer['input'], tf.uint8)
-            category_index = {1: {'id': 1, 'name': 'non'}, 2: {'id': 2, 'name': 'object'}}
+            category_index = {1: {'id': 1, 'name': 'non'},
+                              2: {'id': 2, 'name': 'object'}}
             pre_prob = tf.gather(
                 tf.reshape(self.layer['proposal_score'], [-1]),
                 self._pos_anchor_idx)
@@ -228,48 +226,37 @@ class RPN(BaseModel):
             tf.summary.image('gt', gt_bbox_im, collections=['train'])
 
         self.summary_list = tf.summary.merge_all('train')
-        # self.summary_faster_list = tf.summary.merge_all('faster')
 
 
 SAVE_DIR = '/home/qge2/workspace/data/tmp/'
 
 if __name__ == '__main__':
-    import numpy as np
-    from utils.viz import draw_bounding_box
     vggpath = '/home/qge2/workspace/data/pretrain/vgg/vgg16.npy'
     im_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/JPEGImages/'
     xml_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/Annotations/'
 
-    
-
     image = tf.placeholder(tf.float32, name='image',
-                            shape=[1, None, None, 3])
+                           shape=[1, None, None, 3])
     im_size = tf.placeholder(tf.float32, name='im_size',
-                            shape=[1, 4])
+                             shape=[1, 4])
     gt_bbox = tf.placeholder(tf.float32, name='gt_bbox',
-                            shape=[1, None, 4])
-
+                             shape=[1, None, 4])
 
     rpn = RPN(pre_train_path=vggpath, fine_tune=True)
     rpn.create_model([image, 1, im_size, gt_bbox])
-
-    # pre_op = tf.nn.top_k(tf.nn.softmax(rpn.layer['output']), 
-    #                         k=5, sorted=True)
 
     train_op = rpn.get_train_op()
     cls_cost_op = rpn.cls_loss
     reg_cost_op = rpn.reg_loss
     summery_op = rpn.summary_list
-    # summery_faster_op = rpn.summary_faster_list
 
     test_op = rpn.test
     test_op_2 = rpn.test_2
 
-
     writer = tf.summary.FileWriter(SAVE_DIR)
     saver = tf.train.Saver()
-    db = DetectionDB('jpg', im_dir=im_path, xml_dir=xml_path, num_channel=3,
-                 rescale=600)
+    db = DetectionDB('jpg', im_dir=im_path, xml_dir=xml_path,
+                     num_channel=3, rescale=600)
 
     trigger_step = 500
     faster_trigger_step = 10
@@ -285,9 +272,12 @@ if __name__ == '__main__':
             batch_data = db.next_batch()
             im = batch_data[0]
             bbox = batch_data[1]
-            re = sess.run([train_op, cls_cost_op, reg_cost_op, summery_op, test_op, test_op_2],
-                          feed_dict={image: im, im_size: [im.shape], gt_bbox: bbox})
-            print('step: {}, cls_cost: {}, reg_cost: {}, cost: {}'.format(step_cnt, re[1], re[2], re[1] + re[2]))
+            re = sess.run([train_op, cls_cost_op, reg_cost_op,
+                          summery_op, test_op, test_op_2],
+                          feed_dict={image: im, im_size: [im.shape],
+                                     gt_bbox: bbox})
+            print('step: {}, cls_cost: {}, reg_cost: {}, cost: {}'.
+                  format(step_cnt, re[1], re[2], re[1] + re[2]))
             sum_cls_cost += re[1]
             sum_reg_cost += re[2]
 
@@ -299,18 +289,12 @@ if __name__ == '__main__':
                 cost_mean = reg_cost_mean + cls_cost_mean
 
                 s = tf.Summary()
-                s.value.add(tag = 'mean/cls', simple_value = cls_cost_mean)
-                s.value.add(tag = 'mean/reg', simple_value = reg_cost_mean)
-                s.value.add(tag = 'mean/cost', simple_value = cost_mean)
+                s.value.add(tag='mean/cls', simple_value=cls_cost_mean)
+                s.value.add(tag='mean/reg', simple_value=reg_cost_mean)
+                s.value.add(tag='mean/cost', simple_value=cost_mean)
                 writer.add_summary(s, step_cnt)
 
             if step_cnt % trigger_step == 0:
-                saver.save(sess, SAVE_DIR, global_step = step_cnt)
+                saver.save(sess, SAVE_DIR, global_step=step_cnt)
                 writer.add_summary(re[3], step_cnt)
             step_cnt += 1
-
-
-
-
-
-

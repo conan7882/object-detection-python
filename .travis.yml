@@ -12,7 +12,7 @@ branches:
   # - master
   - develop
 script:
-  - flake8 lib/dataflow/ lib/model/ --ignore=F405,F403,E402
+  - flake8 lib/dataflow/ lib/model/ --ignore=F405,F403,E402,E501
   - python test/test.py
   # - coverage run --source=. test/test.py
 # after_success:
