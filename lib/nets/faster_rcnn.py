@@ -13,7 +13,6 @@ from nets.vgg import VGG16_conv
 
 # import sys
 # sys.path.append('../../lib/')
-from dataflow.detectiondb import DetectionDB
 import model.anchor as anchor
 from model.losses import get_reg_loss, get_cls_loss
 from model.bbox_anchor_transform import anchors_to_bbox
@@ -237,6 +236,7 @@ class RPN(BaseModel):
 SAVE_DIR = '/home/qge2/workspace/data/tmp/'
 
 if __name__ == '__main__':
+    from dataflow.detectiondb import DetectionDB
     vggpath = '/home/qge2/workspace/data/pretrain/vgg/vgg16.npy'
     im_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/JPEGImages/'
     xml_path = '/home/qge2/workspace/data/dataset/VOCdevkit/VOC2007/Annotations/'
