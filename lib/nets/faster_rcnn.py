@@ -9,7 +9,7 @@ from tensorcv.models.base import BaseModel
 import tensorcv.models.layers as layers
 from tensorcv.utils.common import apply_mask
 
-from vgg import VGG16_conv
+from nets.vgg import VGG16_conv
 
 # import sys
 # sys.path.append('../../lib/')
