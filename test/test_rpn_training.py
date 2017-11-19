@@ -8,6 +8,7 @@ from set_test_env import *
 import tensorflow as tf
 
 from nets.faster_rcnn import RPN
+from dataflow.detectiondb import DetectionDB
 
 
 if __name__ == '__main__':
