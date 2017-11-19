@@ -74,7 +74,7 @@ class RPN(BaseModel):
             print_warning('No pre-train vgg loaded!')
         else:
             is_load = True
-        vgg_model = VGG16_conv(is_load=Tis_loadrue,
+        vgg_model = VGG16_conv(is_load=is_load,
                                trainable_conv_3up=self._fine_tune,
                                pre_train_path=self._vgg_path)
         vgg_model.create_model([input_im, keep_prob])
