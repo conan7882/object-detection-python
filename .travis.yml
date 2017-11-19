@@ -7,6 +7,10 @@ install:
   # - pip install coveralls
   # - pip install tensorflow
   - pip install -U git+https://github.com/conan7882/DeepVision-tensorflow.git
+branches:
+  only:
+  # - master
+  - develop
 script:
   - flake8 . --ignore=F405,F403
   - python test/test.py
