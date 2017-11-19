@@ -4,7 +4,7 @@ python:
 install:
   - pip install -r requirements.txt
   - pip install flake8
-  - pip install coveralls
+  # - pip install coveralls
   # - pip install tensorflow
   - pip install -U git+https://github.com/conan7882/DeepVision-tensorflow.git
 branches:
@@ -12,17 +12,9 @@ branches:
   # - master
   - develop
 script:
-  - flake8 lib/dataflow/ --ignore=F405,F403,E402
-  - coverage run --source=. test/test.py
-  # - python nerual_style/main.py --style test_data/vangogh.jpg --content test_data/cat.png --maxiter 1 --cscale 100 --rescale --nsave
-  # - coverage run --source=. --omit=*VGG.py,*utils.py nerual_style/main.py --style test_data/vangogh.jpg --content test_data/cat.png --maxiter 1 --cscale 100 --rescale --nsave
-  # - python generate.py cv.yaml --markdown
-  # - coverage run --source=. generate.py cv.yaml --markdown
-after_success:
-  - coveralls
+  - flake8 lib/dataflow/ lib/model/ --ignore=F405,F403,E402
+  - python test/test.py
+  # - coverage run --source=. test/test.py
+# after_success:
+#   - coveralls
   # - codecov
-# group:
-#   - stable
-# dist: 
-#   - trusty
-# os: 

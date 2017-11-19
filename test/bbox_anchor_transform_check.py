@@ -5,9 +5,7 @@
 
 import numpy as np
 
-# import sys
-# sys.path.append('../../lib/')
-import utils.bbox as bbox
+import bbox_check as bbox
 
 
 def comp_regression_paras(anchors, bboxes):

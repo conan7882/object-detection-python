@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# File: anchor.py
+# File: anchor_check.py
 # Author: Qian Ge <geqian1001@gmail.com>
 # reference code [1]
 # [1] https://github.com/endernewton/tf-faster-rcnn/blob/master/lib/layer_utils/generate_anchors.py
@@ -18,10 +18,8 @@
 
 import numpy as np
 
-# import sys
-# sys.path.append('../../lib/')
-import utils.bbox as bbox
-from model.bbox_anchor_transform import comp_regression_paras
+import bbox_check as bbox
+from bbox_anchor_transform_check import comp_regression_paras
 
 
 def anchor_training_samples(im_width, im_height, gt_bbox,
