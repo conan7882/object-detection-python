@@ -18,7 +18,7 @@ if __name__ == '__main__':
     gt_bbox = tf.placeholder(tf.float32, name='gt_bbox',
                              shape=[1, None, 4])
 
-    rpn = RPN(pre_train_path='', fine_tune=True)
+    rpn = RPN(pre_train_path=None, fine_tune=True)
     rpn.create_model([image, 1, im_size, gt_bbox])
 
     train_op = rpn.get_train_op()
