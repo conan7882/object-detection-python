@@ -13,8 +13,8 @@ branches:
   - develop
 script:
   - flake8 lib/dataflow/ lib/model/ --ignore=F405,F403,E402,E501
-  - - coverage run --source=. test/test.py
-  - - coverage run --source=. test/test_rpn_training.py
+  - coverage run --source=. test/test.py
+  - coverage run --source=. test/test_rpn_training.py
   # - coverage run --source=. test/test.py
 after_success:
 #   - coveralls
