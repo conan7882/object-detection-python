@@ -126,11 +126,13 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
                  len(pos_gt_idx), len(pos_anchor_idx)))
 
     return pos_anchor, neg_anchor, pos_position, neg_position,\
-        mask, label_map, sampled_gt_bbox, t_s, pos_anchor_idx
+        mask, label_map, sampled_gt_bbox, t_s, pos_anchor_idx, im_anchors
 
 
 def _map_position_to_index(in_map, position):
+    # print(in_map)
     t = position.transpose()
+    # print(in_map.shape)
     t = np.vstack([t[1], t[0], t[2]])
     return np.ravel_multi_index(t, dims=in_map.shape)
 

@@ -116,11 +116,11 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
     # pos_anchor_idx = _map_position_to_index(label_map, pos_position)
 
     # Order based on [feat_with, feat_height, n_anchor]
-    trans_idx = _index_awh2wha(pos_anchor_idx)
-    pos_anchor_idx = pos_anchor_idx[trans_idx]
-    pos_anchor = _awh2wha(pos_anchor, trans_idx)
-    pos_position = _awh2wha(pos_position, trans_idx)
-    sampled_gt_bbox = _awh2wha(sampled_gt_bbox, trans_idx)
+    # trans_idx = _index_awh2wha(pos_anchor_idx)
+    # pos_anchor_idx = pos_anchor_idx[trans_idx]
+    # pos_anchor = _awh2wha(pos_anchor, trans_idx)
+    # pos_position = _awh2wha(pos_position, trans_idx)
+    # sampled_gt_bbox = _awh2wha(sampled_gt_bbox, trans_idx)
     t_s = comp_regression_paras(pos_anchor, sampled_gt_bbox)
 
     print('number of samples: {}, number of positive: {}, {}, {}'.
@@ -128,7 +128,7 @@ def anchor_training_samples(im_width, im_height, gt_bbox,
                  len(pos_gt_idx), len(pos_anchor_idx)))
 
     return pos_anchor, neg_anchor, pos_position, neg_position,\
-        mask, label_map, sampled_gt_bbox, t_s, pos_anchor_idx
+        mask, label_map, sampled_gt_bbox, t_s, pos_anchor_idx, im_anchors
 
 
 def _map_position_to_index(in_map, position):
@@ -198,8 +198,9 @@ def get_gt_anchors(im_anchors, positions, gt_bbox,
     n_pos = min(n_pos, num_sample)
     n_neg = max(num_sample, 2 * num_sample - n_pos)
 
-    pos_anchor, pos_position, pos_gt_idx = random_sample_anchor(
-        pos_anchor, pos_position, n_pos, pos_idx, gt_idx=pos_gt_idx)
+    if n_pos > num_sample:
+        pos_anchor, pos_position, pos_gt_idx = random_sample_anchor(
+            pos_anchor, pos_position, n_pos, pos_idx, gt_idx=pos_gt_idx)
 
     neg_anchor, neg_position = random_sample_anchor(
         neg_anchor, neg_position, n_neg, neg_idx)
@@ -245,12 +246,15 @@ def gen_im_anchors(width, height, stride=16,
     shift_x, shift_y = np.meshgrid(shift_x, shift_y)
     shift_mesh = np.vstack([shift_x.ravel(), shift_y.ravel(),
                             shift_x.ravel(), shift_y.ravel()]).transpose()
+    # print(shift_x.ravel())
+    # print(shift_x)
+    # print(shift_x.ravel().reshape(height, width))
 
     nanchors = np.shape(base_anchor_set)[0]
     nshifts = np.shape(shift_mesh)[0]
     shift_anchors = np.reshape(base_anchor_set, (1, nanchors, 4)) +\
         shift_mesh.reshape((1, nshifts, 4)).transpose((1, 0, 2))
-    shift_anchors = shift_anchors.reshape((width, height, nanchors, 4)).transpose(2, 0, 1, 3)
+    # shift_anchors = shift_anchors.reshape((height, width, nanchors, 4)).transpose(2, 0, 1, 3)
     shift_anchors = np.reshape(shift_anchors, (nanchors * nshifts, 4))
 
     # Generate a list to record anchor postion in feature map and anchor id
@@ -261,6 +265,8 @@ def gen_im_anchors(width, height, stride=16,
     anchor_position = np.array([list(map(int, (anchor[0], anchor[1], a_id)))
                                 for anchor in anchor_position
                                 for a_id in range(0, n_anchor)])
+    # anchor_position = anchor_position.reshape(height, width, n_anchor, 3).transpose(2, 0, 1, 3)
+    # anchor_position = np.reshape(anchor_position, (nanchors * nshifts, 3))
     return shift_anchors, anchor_position
 
 

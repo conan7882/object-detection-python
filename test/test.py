@@ -52,7 +52,8 @@ def test_anchor(im, gt_bbox):
                                             pos_thr=0.6, neg_thr=0.3,
                                             num_sample=64)
 
-    checklist = [0, 2, 5, 6, 7, 8]
+    checklist = [0, 2, 5, 6, 7, 9]
+
     for i in checklist:
         assert np.array_equal(re[i], c_re[i]), print(i)
     return c_re[0], c_re[6]

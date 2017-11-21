@@ -65,7 +65,7 @@ class RPN(BaseModel):
             gt_bbox = self.model_input[3]
 
             self._cls_mask, self._cls_label, self._targe_bbox_para,\
-                self._pos_anchor_idx, self._pos_anchors, self._sampled_gt_bbox =\
+                self._pos_anchor_idx, self._pos_anchors, self._sampled_gt_bbox, all_anchors =\
                 self._get_target_anchors(im_size[0], gt_bbox[0])
 
         self.layer = {}
@@ -106,17 +106,25 @@ class RPN(BaseModel):
             pre_bbox_para_train = tf.transpose(
                 tf.stack([apply_mask(c_reg[0], self._cls_label)
                           for c_reg in reg]))
-            pre_proposal_bbx_train = tf.py_func(
+            pre_proposal_bbox_train = tf.py_func(
                 anchors_to_bbox,
                 [self._pos_anchors, pre_bbox_para_train],
-                tf.float64, name="pre_proposal_bbx")
+                tf.float64, name="pre_proposal_bbox_train")
 
-        # with tf.variable_scope('rpn_reg_predict'):
-        #     proposal_pred_mask = tf.expand_dims(
-        #         tf.where(tf.less(cls_prob, 0.5),
-        #                  tf.zeros_like(pre_prob),
-        #                  tf.ones_like(pre_prob)), dim=0)
-            
+        with tf.variable_scope('rpn_reg_predict'):
+            proposal_pred_mask = tf.expand_dims(
+                tf.where(tf.less(cls_prob, 0.5),
+                         tf.zeros_like(pre_prob),
+                         tf.ones_like(pre_prob)), dim=0)
+            pre_proposal_para = tf.transpose(
+                tf.stack([apply_mask(c_reg[0], proposal_pred_mask)
+                          for c_reg in reg]))
+            pre_proposal_bbox = tf.py_func(
+                anchors_to_bbox,
+                [all_anchors, pre_proposal_para],
+                tf.float64, name="pre_proposal_bbox")
+
+
 
 
         # reg, pre_bbox_para, pre_proposal_bbx =
@@ -133,7 +141,7 @@ class RPN(BaseModel):
         self.layer['proposal_score'] = cls_prob
         self.layer['reg'] = reg
         self.layer['pre_bbox_para_train'] = pre_bbox_para_train
-        self.layer['pre_proposal_bbx_train'] = pre_proposal_bbx_train
+        self.layer['pre_proposal_bbox_train'] = pre_proposal_bbox_train
 
     def _get_target_anchors(self, im_size, gt_bbox):
 
@@ -143,7 +151,7 @@ class RPN(BaseModel):
 
         pos_anchors, neg_anchors, pos_position, neg_position,\
             mask, label_map, sampled_gt_bbox, targe_bbox_para,\
-            pos_anchor_idx =\
+            pos_anchor_idx, all_anchors =\
             tf.py_func(
                         anchor.anchor_training_samples,
                         [im_width, im_height, gt_bbox, self._stride,
@@ -152,11 +160,11 @@ class RPN(BaseModel):
                          self._num_sample],
                         [tf.float64, tf.float64, tf.int64, tf.int64,
                          tf.int64, tf.int64, tf.float64, tf.float64,
-                         tf.int64],
+                         tf.int64, tf.float64],
                         name="target_anchors")
 
         return tf.cast(mask, tf.int32), tf.cast(label_map, tf.int32),\
-            targe_bbox_para, pos_anchor_idx, pos_anchors, sampled_gt_bbox
+            targe_bbox_para, pos_anchor_idx, pos_anchors, sampled_gt_bbox, all_anchors
 
     def _get_loss(self):
         with tf.name_scope('loss'):
@@ -220,7 +228,7 @@ class RPN(BaseModel):
                 tf.shape(self._pos_anchors)[0] == 0,
                 o_im,
                 tf_draw_bounding_box(o_im,
-                                     self.layer['pre_proposal_bbx_train'],
+                                     self.layer['pre_proposal_bbox_train'],
                                      classes,
                                      scores,
                                      category_index,
