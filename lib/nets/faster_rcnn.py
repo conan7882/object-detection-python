@@ -16,6 +16,7 @@ from nets.vgg import VGG16_conv
 import model.anchor as anchor
 from model.losses import get_reg_loss, get_cls_loss
 from model.bbox_anchor_transform import anchors_to_bbox
+from model.layers import region_proposal_layer
 from utils.viz import tf_draw_bounding_box
 from utils.log import print_warning
 
@@ -59,12 +60,13 @@ class RPN(BaseModel):
         input_im = self.model_input[0]
         keep_prob = self.model_input[1]
 
-        im_size = self.model_input[2]
-        gt_bbox = self.model_input[3]
+        with tf.name_scope('target_anchors'):
+            im_size = self.model_input[2]
+            gt_bbox = self.model_input[3]
 
-        self._cls_mask, self._cls_label, self._targe_bbox_para,\
-            self._pos_anchor_idx, self._pos_anchors, self._sampled_gt_bbox =\
-            self._get_target_anchors(im_size[0], gt_bbox[0])
+            self._cls_mask, self._cls_label, self._targe_bbox_para,\
+                self._pos_anchor_idx, self._pos_anchors, self._sampled_gt_bbox =\
+                self._get_target_anchors(im_size[0], gt_bbox[0])
 
         self.layer = {}
 
@@ -96,21 +98,30 @@ class RPN(BaseModel):
                 reg.append(layers.conv(feat_map, 1, self._nanchor,
                                        'reg_layer_{}'.format(i),
                                        wd=wd, init_w=init_w, init_b=init_b))
-            pre_bbox_para = tf.transpose(
+        with tf.variable_scope('rpn_reg_train'):
+            pre_bbox_para_train = tf.transpose(
                 tf.stack([apply_mask(c_reg[0], self._cls_label)
                           for c_reg in reg]))
-            pre_proposal_bbx = tf.py_func(
+            pre_proposal_bbx_train = tf.py_func(
                 anchors_to_bbox,
-                [self._pos_anchors, pre_bbox_para],
+                [self._pos_anchors, pre_bbox_para_train],
                 tf.float64, name="pre_proposal_bbx")
+
+        # reg, pre_bbox_para, pre_proposal_bbx =
+        #     region_proposal_layer(feat_map,
+        #                           self._pos_anchors,
+        #                           self._cls_label,
+        #                           self._nanchor,
+        #                           wd=wd, init_w=init_w, init_b=init_b,
+        #                           name='reg_layer')
 
         self.layer['input'] = input_im
         self.layer['feat_map'] = feat_map
         self.layer['cls'] = cls
         self.layer['proposal_score'] = tf.sigmoid(cls, name='proposal_score')
         self.layer['reg'] = reg
-        self.layer['pre_bbox_para'] = pre_bbox_para
-        self.layer['pre_proposal_bbx'] = pre_proposal_bbx
+        self.layer['pre_bbox_para_train'] = pre_bbox_para_train
+        self.layer['pre_proposal_bbx_train'] = pre_proposal_bbx_train
 
     def _get_target_anchors(self, im_size, gt_bbox):
 
@@ -130,7 +141,7 @@ class RPN(BaseModel):
                         [tf.float64, tf.float64, tf.int64, tf.int64,
                          tf.int64, tf.int64, tf.float64, tf.float64,
                          tf.int64],
-                        name="gt_boxes")
+                        name="target_anchors")
 
         return tf.cast(mask, tf.int32), tf.cast(label_map, tf.int32),\
             targe_bbox_para, pos_anchor_idx, pos_anchors, sampled_gt_bbox
@@ -147,7 +158,7 @@ class RPN(BaseModel):
                                          self._cls_mask)
             self.reg_loss = get_reg_loss(self.layer['reg'],
                                          self._pos_anchor_idx,
-                                         self.layer['pre_bbox_para'],
+                                         self.layer['pre_bbox_para_train'],
                                          self._targe_bbox_para)
 
             return tf.add_n(tf.get_collection('losses'), name='result')
@@ -197,7 +208,7 @@ class RPN(BaseModel):
                 tf.shape(self._pos_anchors)[0] == 0,
                 o_im,
                 tf_draw_bounding_box(o_im,
-                                     self.layer['pre_proposal_bbx'],
+                                     self.layer['pre_proposal_bbx_train'],
                                      classes,
                                      scores,
                                      category_index,
