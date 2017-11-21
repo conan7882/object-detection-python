@@ -112,11 +112,12 @@ class RPN(BaseModel):
                 tf.float64, name="pre_proposal_bbox_train")
 
         with tf.variable_scope('rpn_reg_predict'):
-            proposal_pred_mask = tf.expand_dims(
-                tf.where(tf.less(cls_prob, 0.5),
-                         tf.zeros_like(cls_prob),
-                         tf.ones_like(cls_prob)), dim=0)
+            proposal_pred_mask = tf.where(
+                tf.less(cls_prob, 0.5),
+                tf.zeros_like(cls_prob),
+                tf.ones_like(cls_prob))
             proposal_pred_mask = tf.cast(proposal_pred_mask, tf.int32)
+            proposal_pred_mask = squeeze(proposal_pred_mask)
             pre_proposal_para = tf.transpose(
                 tf.stack([apply_mask(c_reg[0], proposal_pred_mask)
                           for c_reg in reg]))
