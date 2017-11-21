@@ -89,8 +89,11 @@ class RPN(BaseModel):
                                init_w=init_w, init_b=init_b)
 
         # cls layer
-        cls = layers.conv(feat_map, 1, self._nanchor, 'cls_layer',
+        with tf.name_scope('cls_layer'):
+            cls = layers.conv(feat_map, 1, self._nanchor, 'cls_layer',
                           wd=wd, init_w=init_w, init_b=init_b)
+            cls_prob = tf.sigmoid(cls, name='proposal_score')
+
         # reg layer
         with tf.variable_scope('reg_layer'):
             reg = []
@@ -98,6 +101,7 @@ class RPN(BaseModel):
                 reg.append(layers.conv(feat_map, 1, self._nanchor,
                                        'reg_layer_{}'.format(i),
                                        wd=wd, init_w=init_w, init_b=init_b))
+
         with tf.variable_scope('rpn_reg_train'):
             pre_bbox_para_train = tf.transpose(
                 tf.stack([apply_mask(c_reg[0], self._cls_label)
@@ -106,6 +110,14 @@ class RPN(BaseModel):
                 anchors_to_bbox,
                 [self._pos_anchors, pre_bbox_para_train],
                 tf.float64, name="pre_proposal_bbx")
+
+        # with tf.variable_scope('rpn_reg_predict'):
+        #     proposal_pred_mask = tf.expand_dims(
+        #         tf.where(tf.less(cls_prob, 0.5),
+        #                  tf.zeros_like(pre_prob),
+        #                  tf.ones_like(pre_prob)), dim=0)
+            
+
 
         # reg, pre_bbox_para, pre_proposal_bbx =
         #     region_proposal_layer(feat_map,
@@ -118,7 +130,7 @@ class RPN(BaseModel):
         self.layer['input'] = input_im
         self.layer['feat_map'] = feat_map
         self.layer['cls'] = cls
-        self.layer['proposal_score'] = tf.sigmoid(cls, name='proposal_score')
+        self.layer['proposal_score'] = cls_prob
         self.layer['reg'] = reg
         self.layer['pre_bbox_para_train'] = pre_bbox_para_train
         self.layer['pre_proposal_bbx_train'] = pre_proposal_bbx_train

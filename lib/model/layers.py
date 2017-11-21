@@ -10,6 +10,7 @@ from tensorcv.utils.common import apply_mask
 
 from model.bbox_anchor_transform import anchors_to_bbox
 
+
 def region_proposal_layer(feat_map, pos_anchors, cls_label, n_anchor_per_position,
                           wd=None, init_w=None, init_b=None,
                           name='reg_layer'):

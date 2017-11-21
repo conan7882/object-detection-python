@@ -250,6 +250,7 @@ def gen_im_anchors(width, height, stride=16,
     nshifts = np.shape(shift_mesh)[0]
     shift_anchors = np.reshape(base_anchor_set, (1, nanchors, 4)) +\
         shift_mesh.reshape((1, nshifts, 4)).transpose((1, 0, 2))
+    shift_anchors = shift_anchors.reshape((width, height, nanchors, 4)).transpose(2, 0, 1, 3)
     shift_anchors = np.reshape(shift_anchors, (nanchors * nshifts, 4))
 
     # Generate a list to record anchor postion in feature map and anchor id
