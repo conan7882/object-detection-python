@@ -117,7 +117,7 @@ class RPN(BaseModel):
                 tf.zeros_like(cls_prob),
                 tf.ones_like(cls_prob))
             proposal_pred_mask = tf.cast(proposal_pred_mask, tf.int32)
-            proposal_pred_mask = squeeze(proposal_pred_mask)
+            proposal_pred_mask = tf.squeeze(proposal_pred_mask)
             pre_proposal_para = tf.transpose(
                 tf.stack([apply_mask(c_reg[0], proposal_pred_mask)
                           for c_reg in reg]))
