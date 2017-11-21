@@ -114,8 +114,8 @@ class RPN(BaseModel):
         with tf.variable_scope('rpn_reg_predict'):
             proposal_pred_mask = tf.expand_dims(
                 tf.where(tf.less(cls_prob, 0.5),
-                         tf.zeros_like(pre_prob),
-                         tf.ones_like(pre_prob)), dim=0)
+                         tf.zeros_like(cls_prob),
+                         tf.ones_like(cls_prob)), dim=0)
             pre_proposal_para = tf.transpose(
                 tf.stack([apply_mask(c_reg[0], proposal_pred_mask)
                           for c_reg in reg]))
